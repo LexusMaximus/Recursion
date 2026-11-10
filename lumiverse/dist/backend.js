@@ -19,6 +19,68 @@ try {
 } catch (error) {
   spindle.log.error(`settings: failed to load or create \u2014 ${String(error)}`);
 }
+var step4Done = false;
+var FIXTURE_PROMPT = 'Return exactly this JSON object and nothing else: {"status":"ok","test":"recursion-step4"}';
+async function resolveConnectionId(userId) {
+  const settings = await spindle.storage.getJson(SETTINGS_PATH, {
+    fallback: DEFAULT_SETTINGS
+  });
+  if (typeof settings.connectionId === "string" && settings.connectionId) {
+    return settings.connectionId;
+  }
+  const connections = await spindle.connections.list(userId);
+  if (connections.length === 0) {
+    spindle.log.warn("step4: no connection profiles available");
+    return null;
+  }
+  const connectionId = connections[0].id;
+  return connectionId;
+}
+async function persistConnectionId(connectionId) {
+  const settings = await spindle.storage.getJson(SETTINGS_PATH, {
+    fallback: DEFAULT_SETTINGS
+  });
+  const merged = { ...DEFAULT_SETTINGS, ...settings, connectionId };
+  await spindle.storage.setJson(SETTINGS_PATH, merged, { indent: 2 });
+  spindle.log.info(`step4: persisted connectionId ${connectionId} to settings`);
+}
+async function runStep4Once(userId) {
+  if (step4Done)
+    return;
+  step4Done = true;
+  if (!spindle.permissions.has("generation")) {
+    spindle.log.warn("step4: skipped \u2014 generation permission not granted (grant it, then restart to retry)");
+    return;
+  }
+  try {
+    const connectionId = await resolveConnectionId(userId);
+    if (!connectionId)
+      return;
+    const result = await spindle.generate.raw({
+      type: "raw",
+      connection_id: connectionId,
+      messages: [{ role: "user", content: FIXTURE_PROMPT }]
+    });
+    const content = result?.content;
+    if (typeof content !== "string") {
+      spindle.log.warn("step4: unexpected result shape \u2014 content is not a string");
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      spindle.log.error(`step4: JSON.parse failed \u2014 content length ${content.length}, error: ${message}`);
+      return;
+    }
+    const keys = parsed !== null && typeof parsed === "object" ? Object.keys(parsed).join(", ") || "(none)" : `non-object (${typeof parsed})`;
+    spindle.log.info(`step4: parsed JSON keys: ${keys}`);
+    await persistConnectionId(connectionId);
+  } catch (error) {
+    spindle.log.error(`step4: failed \u2014 ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 function hasChatPermissions() {
   return spindle.permissions.has("chats") && spindle.permissions.has("chat_mutation");
 }
@@ -48,4 +110,5 @@ spindle.on("CHAT_CHANGED", (payload, userId) => {
   refreshChatWindow(userId).catch((error) => {
     spindle.log.error(`chat-window: refresh failed \u2014 ${String(error)}`);
   });
+  runStep4Once(userId);
 });

@@ -34,6 +34,92 @@ try {
   spindle.log.error(`settings: failed to load or create — ${String(error)}`)
 }
 
+// ---- Step 4: one generate.raw JSON call (PLAN.md Step 4) ----
+// Runs at most once per process: CHAT_CHANGED fires several times per action
+// (NOTES.md Known Issues) and each call costs tokens. The flag is set
+// SYNCHRONOUSLY at entry, before any await, so concurrent emissions cannot
+// double-run; the generate.raw call below therefore starts after this.
+let step4Done = false
+
+// Fixture prompt — static, contains NO chat text.
+const FIXTURE_PROMPT =
+  'Return exactly this JSON object and nothing else: {"status":"ok","test":"recursion-step4"}'
+
+async function resolveConnectionId(userId: string): Promise<string | null> {
+  // Saved setting wins; otherwise first entry of connections.list
+  // (generation.md:753-759; PLAN.md Step 4 temporary default until Step 7).
+  const settings = await spindle.storage.getJson<typeof DEFAULT_SETTINGS>(SETTINGS_PATH, {
+    fallback: DEFAULT_SETTINGS,
+  })
+  if (typeof settings.connectionId === 'string' && settings.connectionId) {
+    return settings.connectionId
+  }
+  // Operator-scoped extension: pass userId to scope the list (spindle-api.d.ts:642-646).
+  const connections = await spindle.connections.list(userId)
+  if (connections.length === 0) {
+    spindle.log.warn('step4: no connection profiles available')
+    return null
+  }
+  const connectionId = connections[0].id
+  return connectionId
+}
+
+async function persistConnectionId(connectionId: string): Promise<void> {
+  // Persisted on FIRST SUCCESSFUL USE (PLAN.md:121), by read-merge-write of the
+  // FULL settings object (manager change 2) — never clobber other keys.
+  // spindle.storage, no userId (storage.md:73, 81).
+  const settings = await spindle.storage.getJson<typeof DEFAULT_SETTINGS>(SETTINGS_PATH, {
+    fallback: DEFAULT_SETTINGS,
+  })
+  const merged = { ...DEFAULT_SETTINGS, ...settings, connectionId }
+  await spindle.storage.setJson(SETTINGS_PATH, merged, { indent: 2 })
+  spindle.log.info(`step4: persisted connectionId ${connectionId} to settings`)
+}
+
+async function runStep4Once(userId: string): Promise<void> {
+  if (step4Done) return
+  step4Done = true
+  // permissions.md:30 — generation covers raw + connections.list; permissions.md:178 — has().
+  if (!spindle.permissions.has('generation')) {
+    spindle.log.warn('step4: skipped — generation permission not granted (grant it, then restart to retry)')
+    return
+  }
+  try {
+    const connectionId = await resolveConnectionId(userId)
+    if (!connectionId) return
+    // generation.md:7-20 — raw({ connection_id, messages }); direct provider call,
+    // no interceptor re-entry (generation.md:35-36).
+    const result: unknown = await spindle.generate.raw({
+      type: 'raw',
+      connection_id: connectionId,
+      messages: [{ role: 'user', content: FIXTURE_PROMPT }],
+    })
+    const content = (result as { content?: unknown } | null)?.content
+    if (typeof content !== 'string') {
+      spindle.log.warn('step4: unexpected result shape — content is not a string')
+      return
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(content)
+    } catch (error) {
+      // Manager: on parse failure log ONLY content length + error message.
+      const message = error instanceof Error ? error.message : String(error)
+      spindle.log.error(`step4: JSON.parse failed — content length ${content.length}, error: ${message}`)
+      return
+    }
+    const keys =
+      parsed !== null && typeof parsed === 'object'
+        ? Object.keys(parsed).join(', ') || '(none)'
+        : `non-object (${typeof parsed})`
+    spindle.log.info(`step4: parsed JSON keys: ${keys}`)
+    await persistConnectionId(connectionId)
+  } catch (error) {
+    // Thrown error message logged as-is (manager).
+    spindle.log.error(`step4: failed — ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 function hasChatPermissions(): boolean {
   // permissions.md:178 — spindle.permissions.has() is the documented check.
   return spindle.permissions.has('chats') && spindle.permissions.has('chat_mutation')
@@ -84,4 +170,6 @@ spindle.on('CHAT_CHANGED', (payload, userId) => {
   void refreshChatWindow(userId).catch((error) => {
     spindle.log.error(`chat-window: refresh failed — ${String(error)}`)
   })
+  // Step 4 one-shot model call (self-guarding via step4Done; never throws).
+  void runStep4Once(userId)
 })
