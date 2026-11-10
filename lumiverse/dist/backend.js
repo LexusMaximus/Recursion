@@ -33,8 +33,9 @@ async function resolveConnectionId(userId) {
     spindle.log.warn("step4: no connection profiles available");
     return null;
   }
-  const connectionId = connections[0].id;
-  return connectionId;
+  const chosen = connections.find((c) => c.is_default) ?? connections[0];
+  spindle.log.info(`step4: using connection id=${chosen.id} name=${chosen.name} provider=${chosen.provider} model=${chosen.model || "(empty)"} default=${chosen.is_default}`);
+  return chosen.id;
 }
 async function persistConnectionId(connectionId) {
   const settings = await spindle.storage.getJson(SETTINGS_PATH, {
