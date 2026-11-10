@@ -51,11 +51,15 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - [x] 0b. /analyze.md 2 confirmed (Lumiverse capabilities)
 - [x] 0c. /analyze.md 3 confirmed (LumiWorld patterns)
 - [x] 0d. /analyze.md 4 confirmed (mapping), then PLAN.md steps rewritten
-- [ ] 1. Minimal extension loads in Lumiverse (PLAN.md Step 1: scaffold, root spindle.json,
+- [x] 1. Minimal extension loads in Lumiverse (PLAN.md Step 1: scaffold, root spindle.json,
       minimal backend; also 2, 3, 4, 5a-c, 6a, 6b, 7 per rewritten PLAN.md)
+- [ ] 2. PLAN.md Step 2 — settings stub (read/write one setting in userStorage)
 
 ## Done Log
 (Newest first: step / what changed / files / test result / tag)
+- 1 / scaffold: root spindle.json + lumiverse/ backend (bun + tsc, dist committed) /
+  spindle.json, lumiverse/{package.json,tsconfig.json,src/backend.ts,dist/backend.js,bun.lock},
+  .gitignore / build + install test PASSED (confirmed by me) / step-1
 - 0d / mapping + PLAN steps rewritten per decisions (in-interceptor pipeline; root spindle.json;
   one combined block) / docs/port/MAPPING.md, PLAN.md / confirmed by me / step-0d
 - 0c / LumiWorld patterns analysis / docs/port/LUMIWORLD_PATTERNS.md / confirmed by me / step-0c
@@ -64,10 +68,10 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - step-0 / overlay, docs, LumiWorld clone / .clinerules/, tools/, NOTES, PLAN, SETUP, .gitignore / docs copied (COPIED.txt present) / step-0
 
 ## Current Step
-- 1: PLAN.md Step 1 — scaffold (root spindle.json, lumiverse/ backend, committed dist)
+- 2: PLAN.md Step 2 — settings stub (one setting in userStorage global/settings.json)
 
 ## Next Step
-- /step.md 1 (build + install test, then /scribe.md step-1)
+- /step.md 2 (implement + test, then /scribe.md step-2)
 
 ## Known Issues
 - Before Step 5 starts: (1) add the data flow and where the model-call prompt and JSON parsing
@@ -87,5 +91,5 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
   on GENERATION_STOPPED; single named breakdown entry; revision-based settings autosave.
 
 ## Last Working Version
-Tag: step-0d
-Go back with: git reset --hard step-0d
+Tag: step-1
+Go back with: git reset --hard step-1
