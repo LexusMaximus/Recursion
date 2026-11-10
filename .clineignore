@@ -1,0 +1,38 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Binary and bulky files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.ico
+*.zip
+
+# Lock files
+package-lock.json
+bun.lock
+yarn.lock
+pnpm-lock.yaml
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+
+# Recursion history the port does not need.
+# Remove a single line (or add a ! exception) when a step needs one of these.
+docs/superpowers/
+docs/release/
+docs/planning/
+docs/verification/
+docs/testing/
+tests/evidence/
+tests/visual-baselines/
+src/vendor/

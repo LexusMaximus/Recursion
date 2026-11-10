@@ -30,3 +30,12 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+secrets/
+
+# Lumiverse exclusions
+reference/
+docs/lumiverse/ref/
+docs/lumiverse/ref-later/
+docs/lumiverse/COPIED.txt
