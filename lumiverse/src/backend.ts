@@ -39,13 +39,18 @@ function hasChatPermissions(): boolean {
   return spindle.permissions.has('chats') && spindle.permissions.has('chat_mutation')
 }
 
-async function refreshChatWindow(): Promise<void> {
+async function refreshChatWindow(userId: string): Promise<void> {
   if (!hasChatPermissions()) {
     windowedMessages = []
     spindle.log.warn('chat-window: skipped — chats/chat_mutation permission not granted')
     return
   }
-  const active = await spindle.chats.getActive() // chats.md:46 — null when no chat open
+  // Operator-scoped extension: getActive resolves the per-user activeChatId
+  // setting, so it needs a userId. Source is the installed types, not the docs
+  // (spindle-api.d.ts:911 getActive(userId?); :174/:210 event handler's second
+  // userId argument). The docs never state how an operator-scoped extension
+  // obtains a userId (chats.md:179 only says "resolved from the extension context").
+  const active = await spindle.chats.getActive(userId) // chats.md:46 — null when no chat open
   if (!active) {
     windowedMessages = []
     spindle.log.warn('chat-window: no active chat')
@@ -59,19 +64,24 @@ async function refreshChatWindow(): Promise<void> {
   )
 }
 
-try {
-  await refreshChatWindow()
-} catch (error) {
-  windowedMessages = []
-  spindle.log.error(`chat-window: initial read failed — ${String(error)}`)
-}
-
-// CHAT_CHANGED subscription is free tier (permissions.md:9). The handler does not
-// read the payload: docs say { chatId } (events.md:26) but the installed types
-// (api.d.ts:1331 ChatChangedPayloadDTO) expose `chat` instead — refresh re-reads
-// the active chat, so no payload field is needed. Failures are logged, never thrown.
-spindle.on('CHAT_CHANGED', () => {
-  void refreshChatWindow().catch((error) => {
+// No startup read: at startup an operator-scoped extension has no userId, and
+// getActive() without one throws (see refreshChatWindow). The window is built
+// lazily from CHAT_CHANGED events, which carry the acting user's id.
+// CHAT_CHANGED subscription is free tier (permissions.md:9). The event userId
+// comes from the handler's second argument (installed types, not docs:
+// spindle-api.d.ts:174 CHAT_CHANGED overload; :210 generic overload). Failures
+// are logged, never thrown.
+spindle.on('CHAT_CHANGED', (payload, userId) => {
+  // Temporary diagnostics: payload KEY NAMES only, never values — diagnosing the
+  // docs/types mismatch (docs say { chatId }, events.md:26; api.d.ts:1329
+  // ChatChangedPayloadDTO exposes `chat`).
+  const keys = Object.keys((payload ?? {}) as object).join(', ') || '(none)'
+  spindle.log.info(`chat-window: CHAT_CHANGED payload keys: ${keys}`)
+  if (typeof userId !== 'string' || !userId) {
+    spindle.log.warn('chat-window: no userId in CHAT_CHANGED event, skipped')
+    return
+  }
+  void refreshChatWindow(userId).catch((error) => {
     spindle.log.error(`chat-window: refresh failed — ${String(error)}`)
   })
 })

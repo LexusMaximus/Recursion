@@ -22,13 +22,13 @@ try {
 function hasChatPermissions() {
   return spindle.permissions.has("chats") && spindle.permissions.has("chat_mutation");
 }
-async function refreshChatWindow() {
+async function refreshChatWindow(userId) {
   if (!hasChatPermissions()) {
     windowedMessages = [];
     spindle.log.warn("chat-window: skipped \u2014 chats/chat_mutation permission not granted");
     return;
   }
-  const active = await spindle.chats.getActive();
+  const active = await spindle.chats.getActive(userId);
   if (!active) {
     windowedMessages = [];
     spindle.log.warn("chat-window: no active chat");
@@ -38,14 +38,14 @@ async function refreshChatWindow() {
   windowedMessages = all.slice(-WINDOW_SIZE);
   spindle.log.info(`chat-window: kept ${windowedMessages.length} of ${all.length} messages for chat ${active.id}`);
 }
-try {
-  await refreshChatWindow();
-} catch (error) {
-  windowedMessages = [];
-  spindle.log.error(`chat-window: initial read failed \u2014 ${String(error)}`);
-}
-spindle.on("CHAT_CHANGED", () => {
-  refreshChatWindow().catch((error) => {
+spindle.on("CHAT_CHANGED", (payload, userId) => {
+  const keys = Object.keys(payload ?? {}).join(", ") || "(none)";
+  spindle.log.info(`chat-window: CHAT_CHANGED payload keys: ${keys}`);
+  if (typeof userId !== "string" || !userId) {
+    spindle.log.warn("chat-window: no userId in CHAT_CHANGED event, skipped");
+    return;
+  }
+  refreshChatWindow(userId).catch((error) => {
     spindle.log.error(`chat-window: refresh failed \u2014 ${String(error)}`);
   });
 });
