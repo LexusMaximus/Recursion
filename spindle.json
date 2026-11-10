@@ -6,6 +6,6 @@
   "github": "https://github.com/LexusMaximus/Recursion",
   "homepage": "https://github.com/LexusMaximus/Recursion",
   "description": "Pre-generation scene reasoning: card deck, prompt packet, prompt breakdown (port of Recursion from SillyTavern).",
-  "permissions": [],
+  "permissions": ["chats", "chat_mutation"],
   "entry_backend": "lumiverse/dist/backend.js"
 }
