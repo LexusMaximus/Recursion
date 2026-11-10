@@ -9,7 +9,7 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 ## How It's Organized
 | Path | Job |
 |---|---|
-| src/, styles/, schemas/, tests/ | Recursion ST source. Read-only until a step names a module. src/ may be one file: confirm in analysis 1 |
+| src/, styles/, schemas/, tests/ | Recursion ST source. Read-only until a step names a module. src/ = 111 files in 11 subfolders |
 | docs/ (Recursion's own) | Architecture, technical, design and user docs. Start at docs/DOCUMENTATION_INDEX.md |
 | docs/lumiverse/ | Verbatim Lumiverse developer docs (API truth). Git-ignored, made by tools/ script |
 | docs/port/ | Analysis outputs (ST touchpoints, capabilities, patterns, mapping) |
@@ -43,10 +43,11 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 | docs/technical/PROMPT_PACKET_AND_INJECTION.md | What Recursion injects into the prompt |
 | docs/technical/MODEL_CALLS_AND_PROVIDER_ROUTING.md | Recursion's model-call lanes |
 | docs/port/*.md | Analysis outputs (once written) |
+| docs/DOCUMENTATION_INDEX.md | Canonical map of Recursion docs |
 
 ## Steps
-- [ ] 0. Scaffold committed and tagged step-0
-- [ ] 0a. /analyze.md 1 confirmed (ST touchpoints)
+- [x] 0. Scaffold committed and tagged step-0
+- [x] 0a. /analyze.md 1 confirmed (ST touchpoints)
 - [ ] 0b. /analyze.md 2 confirmed (Lumiverse capabilities)
 - [ ] 0c. /analyze.md 3 confirmed (LumiWorld patterns)
 - [ ] 0d. /analyze.md 4 confirmed (mapping), then PLAN.md steps rewritten
@@ -54,19 +55,22 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 
 ## Done Log
 (Newest first: step / what changed / files / test result / tag)
+- 0a / ST touchpoints analysis / docs/port/ST_TOUCHPOINTS.md / confirmed by me / step-0a
+- step-0 / overlay, docs, LumiWorld clone / .clinerules/, tools/, NOTES, PLAN, SETUP, .gitignore / docs copied (COPIED.txt present) / step-0
 
 ## Current Step
-- 0: install overlay, copy docs, clone LumiWorld, tag step-0
+- 0b: /analyze.md 2 (Lumiverse capabilities, attach @docs/lumiverse)
 
 ## Next Step
-- /adopt.md, then /analyze.md 1
+- /analyze.md 2, then /scribe.md (N = 0b)
 
 ## Known Issues
 - Code location undecided: lumiverse/ subfolder vs separate repo (check install layout in analysis 2).
 - Kit .gitignore ignores dist/. Lumiverse may need built output: check in analyses 2-3.
 - Interceptor timeout vs multi-call pipeline: unknown until analysis 2.
-- Shape of src/ unknown (one file?): confirm in analysis 1.
+- Analysis 1 confirmed: only index.js + hosts/sillytavern/* + ui.mjs are host-bound; rest is PURE.
+  Packet = 3 named prompt keys; unit-testable logic lives outside tests/ (assert scripts in tools/).
 
 ## Last Working Version
-Tag: none yet
-Go back with: git reset --hard <tag>
+Tag: step-0a
+Go back with: git reset --hard step-0a
