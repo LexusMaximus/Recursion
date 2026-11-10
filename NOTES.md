@@ -49,21 +49,22 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - [x] 0. Scaffold committed and tagged step-0
 - [x] 0a. /analyze.md 1 confirmed (ST touchpoints)
 - [x] 0b. /analyze.md 2 confirmed (Lumiverse capabilities)
-- [ ] 0c. /analyze.md 3 confirmed (LumiWorld patterns)
+- [x] 0c. /analyze.md 3 confirmed (LumiWorld patterns)
 - [ ] 0d. /analyze.md 4 confirmed (mapping), then PLAN.md steps rewritten
 - [ ] 1. Minimal extension loads in Lumiverse (see PLAN.md)
 
 ## Done Log
 (Newest first: step / what changed / files / test result / tag)
+- 0c / LumiWorld patterns analysis / docs/port/LUMIWORLD_PATTERNS.md / confirmed by me / step-0c
 - 0b / Lumiverse capabilities analysis / docs/port/LUMIVERSE_CAPABILITIES.md / confirmed by me / step-0b
 - 0a / ST touchpoints analysis / docs/port/ST_TOUCHPOINTS.md / confirmed by me / step-0a
 - step-0 / overlay, docs, LumiWorld clone / .clinerules/, tools/, NOTES, PLAN, SETUP, .gitignore / docs copied (COPIED.txt present) / step-0
 
 ## Current Step
-- 0c: /analyze.md 3 (LumiWorld patterns, attach @reference/LumiWorld)
+- 0d: /analyze.md 4 (mapping; requires files 1-3, all exist)
 
 ## Next Step
-- /analyze.md 3, then /scribe.md (N = 0c)
+- /analyze.md 4, then /scribe.md (N = 0d), then PLAN.md steps rewritten
 
 ## Known Issues
 - Code location undecided: lumiverse/ subfolder vs separate repo (check install layout in analysis 2).
@@ -74,7 +75,10 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - Analysis 2: interceptor timeout default 10 s (manifest override max 5 min); optional interceptor
   timeouts drop changes silently. spindle.json at repo root; dist/ auto-built (bun) if missing.
   Model calls: spindle.generate.raw(connection_id)/quiet/batch; no native card-deck equivalent.
+- Analysis 3: LumiWorld ships pipeline-in-interceptor with interceptorTimeoutMs 300000 and
+  internal per-phase budgets; dist/ committed; commit deferred to GENERATION_ENDED, discarded
+  on GENERATION_STOPPED; single named breakdown entry; revision-based settings autosave.
 
 ## Last Working Version
-Tag: step-0b
-Go back with: git reset --hard step-0b
+Tag: step-0c
+Go back with: git reset --hard step-0c
