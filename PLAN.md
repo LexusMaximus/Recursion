@@ -87,9 +87,11 @@ spindle.json; ONE combined Prompt Breakdown block. Docs paths under docs/lumiver
 
 
 ### Step 2: Settings stub
-- What changes: read/write one setting in `userStorage` `global/settings.json`
-  (ref/backend-api/storage.md:79-127, getJson/setJson; pattern: LUMIWORLD_PATTERNS §Storage).
+- What changes: read/write one setting in `storage` `global/settings.json`
+  (ref/backend-api/storage.md:3-75, getJson/setJson; pattern: LUMIWORLD_PATTERNS §Storage).
   Backend writes the default on first run when the file is missing.
+  Note: `storage` not `userStorage` — we are operator-scoped, so `spindle.storage` needs no
+  userId and gives one shared global settings file (storage.md:73, 81; secure-enclave.md:63).
 - Files touched: lumiverse/src/backend.ts (edit), lumiverse/dist/backend.js (rebuild+commit).
 - How I test it: first run writes `global/settings.json` (visible via storage), then after a
   Lumiverse/server restart the backend logs the SAVED value read back (not the default).

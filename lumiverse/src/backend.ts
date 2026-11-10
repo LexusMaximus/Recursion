@@ -6,16 +6,18 @@ const SETTINGS_PATH = 'global/settings.json'
 const DEFAULT_SETTINGS = { connectionId: '' }
 
 async function loadOrCreateSettings(): Promise<void> {
-  // First-run detection: explicit exists() check (storage.md:122), NOT the getJson
-  // fallback (storage.md:124) — fallback also applies on parse errors, so it cannot
+  // Operator-scoped extension: spindle.storage is the shared extension-wide
+  // directory (storage.md:73, 81) — no userId needed, unlike userStorage.
+  // First-run detection: explicit exists() check (storage.md:54), NOT the getJson
+  // fallback (storage.md:58) — fallback also applies on parse errors, so it cannot
   // distinguish "missing" from "corrupt". Default is written only when absent.
-  const exists = await spindle.userStorage.exists(SETTINGS_PATH)
+  const exists = await spindle.storage.exists(SETTINGS_PATH)
   if (!exists) {
-    await spindle.userStorage.setJson(SETTINGS_PATH, DEFAULT_SETTINGS, { indent: 2 })
+    await spindle.storage.setJson(SETTINGS_PATH, DEFAULT_SETTINGS, { indent: 2 })
     spindle.log.info('settings: created default')
     return
   }
-  const settings = await spindle.userStorage.getJson(SETTINGS_PATH, { fallback: DEFAULT_SETTINGS })
+  const settings = await spindle.storage.getJson(SETTINGS_PATH, { fallback: DEFAULT_SETTINGS })
   spindle.log.info(`settings: loaded existing ${JSON.stringify(settings)}`)
 }
 
