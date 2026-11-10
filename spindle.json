@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "name": "Recursion",
+  "identifier": "recursion",
+  "author": "LexusMaximus",
+  "github": "https://github.com/LexusMaximus/Recursion",
+  "homepage": "https://github.com/LexusMaximus/Recursion",
+  "description": "Pre-generation scene reasoning: card deck, prompt packet, prompt breakdown (port of Recursion from SillyTavern).",
+  "permissions": [],
+  "entry_backend": "lumiverse/dist/backend.js"
+}

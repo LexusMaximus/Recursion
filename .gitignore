@@ -39,3 +39,8 @@ reference/
 docs/lumiverse/ref/
 docs/lumiverse/ref-later/
 docs/lumiverse/COPIED.txt
+
+# Lumiverse port: committed build output (install clones the repo; no install-time build
+# can produce lumiverse/dist/ because root src/backend.ts is Recursion's ST code)
+!lumiverse/dist/
+

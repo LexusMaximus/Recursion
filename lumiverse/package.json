@@ -1,0 +1,11 @@
+{
+  "name": "recursion-lumiverse",
+  "private": true,
+  "scripts": {
+    "build": "bun build src/backend.ts --outfile dist/backend.js --target bun"
+  },
+  "devDependencies": {
+    "lumiverse-spindle-types": "^0.6.79",
+    "typescript": "^7.0.2"
+  }
+}
