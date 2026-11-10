@@ -52,14 +52,17 @@ async function runStep4Once(userId) {
     spindle.log.warn("step4: skipped \u2014 generation permission not granted (grant it, then restart to retry)");
     return;
   }
+  let stage = "resolve connection";
   try {
     const connectionId = await resolveConnectionId(userId);
     if (!connectionId)
       return;
+    stage = "generate.raw";
     const result = await spindle.generate.raw({
       type: "raw",
       connection_id: connectionId,
-      messages: [{ role: "user", content: FIXTURE_PROMPT }]
+      messages: [{ role: "user", content: FIXTURE_PROMPT }],
+      userId
     });
     const content = result?.content;
     if (typeof content !== "string") {
@@ -78,7 +81,7 @@ async function runStep4Once(userId) {
     spindle.log.info(`step4: parsed JSON keys: ${keys}`);
     await persistConnectionId(connectionId);
   } catch (error) {
-    spindle.log.error(`step4: failed \u2014 ${error instanceof Error ? error.message : String(error)}`);
+    spindle.log.error(`step4: failed at ${stage} \u2014 ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 function hasChatPermissions() {

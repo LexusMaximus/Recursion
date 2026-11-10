@@ -84,15 +84,21 @@ async function runStep4Once(userId: string): Promise<void> {
     spindle.log.warn('step4: skipped — generation permission not granted (grant it, then restart to retry)')
     return
   }
+  let stage = 'resolve connection'
   try {
     const connectionId = await resolveConnectionId(userId)
     if (!connectionId) return
     // generation.md:7-20 — raw({ connection_id, messages }); direct provider call,
     // no interceptor re-entry (generation.md:35-36).
+    stage = 'generate.raw'
     const result: unknown = await spindle.generate.raw({
       type: 'raw',
       connection_id: connectionId,
       messages: [{ role: 'user', content: FIXTURE_PROMPT }],
+      // Operator-scoped extension: raw resolves connection profiles and
+      // generation context per user. types-only (api.d.ts:483-488); absent
+      // from generation.md:53-62.
+      userId,
     })
     const content = (result as { content?: unknown } | null)?.content
     if (typeof content !== 'string') {
@@ -115,8 +121,8 @@ async function runStep4Once(userId: string): Promise<void> {
     spindle.log.info(`step4: parsed JSON keys: ${keys}`)
     await persistConnectionId(connectionId)
   } catch (error) {
-    // Thrown error message logged as-is (manager).
-    spindle.log.error(`step4: failed — ${error instanceof Error ? error.message : String(error)}`)
+    // Thrown error message logged as-is (manager). stage names the failing call.
+    spindle.log.error(`step4: failed at ${stage} — ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
