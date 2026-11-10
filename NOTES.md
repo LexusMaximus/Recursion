@@ -98,9 +98,7 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
   come from (suggest a minimal hand-written prompt in 6b); (2) say which sub-step holds the
   fixed mini-deck; (3) give exact end lines for the EOF ranges, a dependency list per sub-step,
   and the test command.
-- GitHub push credentials: auth was rejected earlier ("Invalid username or token"); it worked
-  again after a credential refresh but is treated as UNRESOLVED — if a push fails, stop and
-  report; do not retry or touch tags.
+- GitHub push: push works from the user's own PowerShell; Cline never pushes.
 - Analysis 1 confirmed: only index.js + hosts/sillytavern/* + ui.mjs are host-bound; rest is PURE.
   Packet = 3 named prompt keys; unit-testable logic lives outside tests/ (assert scripts in tools/).
 - Analysis 2: interceptor timeout default 10 s (manifest override max 5 min); optional interceptor
