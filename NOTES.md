@@ -48,21 +48,22 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 ## Steps
 - [x] 0. Scaffold committed and tagged step-0
 - [x] 0a. /analyze.md 1 confirmed (ST touchpoints)
-- [ ] 0b. /analyze.md 2 confirmed (Lumiverse capabilities)
+- [x] 0b. /analyze.md 2 confirmed (Lumiverse capabilities)
 - [ ] 0c. /analyze.md 3 confirmed (LumiWorld patterns)
 - [ ] 0d. /analyze.md 4 confirmed (mapping), then PLAN.md steps rewritten
 - [ ] 1. Minimal extension loads in Lumiverse (see PLAN.md)
 
 ## Done Log
 (Newest first: step / what changed / files / test result / tag)
+- 0b / Lumiverse capabilities analysis / docs/port/LUMIVERSE_CAPABILITIES.md / confirmed by me / step-0b
 - 0a / ST touchpoints analysis / docs/port/ST_TOUCHPOINTS.md / confirmed by me / step-0a
 - step-0 / overlay, docs, LumiWorld clone / .clinerules/, tools/, NOTES, PLAN, SETUP, .gitignore / docs copied (COPIED.txt present) / step-0
 
 ## Current Step
-- 0b: /analyze.md 2 (Lumiverse capabilities, attach @docs/lumiverse)
+- 0c: /analyze.md 3 (LumiWorld patterns, attach @reference/LumiWorld)
 
 ## Next Step
-- /analyze.md 2, then /scribe.md (N = 0b)
+- /analyze.md 3, then /scribe.md (N = 0c)
 
 ## Known Issues
 - Code location undecided: lumiverse/ subfolder vs separate repo (check install layout in analysis 2).
@@ -70,7 +71,10 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - Interceptor timeout vs multi-call pipeline: unknown until analysis 2.
 - Analysis 1 confirmed: only index.js + hosts/sillytavern/* + ui.mjs are host-bound; rest is PURE.
   Packet = 3 named prompt keys; unit-testable logic lives outside tests/ (assert scripts in tools/).
+- Analysis 2: interceptor timeout default 10 s (manifest override max 5 min); optional interceptor
+  timeouts drop changes silently. spindle.json at repo root; dist/ auto-built (bun) if missing.
+  Model calls: spindle.generate.raw(connection_id)/quiet/batch; no native card-deck equivalent.
 
 ## Last Working Version
-Tag: step-0a
-Go back with: git reset --hard step-0a
+Tag: step-0b
+Go back with: git reset --hard step-0b
