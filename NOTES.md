@@ -54,9 +54,14 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - [x] 1. Minimal extension loads in Lumiverse (PLAN.md Step 1: scaffold, root spindle.json,
       minimal backend; also 2, 3, 4, 5a-c, 6a, 6b, 7 per rewritten PLAN.md)
 - [x] 2. PLAN.md Step 2 — settings stub (one setting via spindle.storage global/settings.json)
+- [x] 3. PLAN.md Step 3 — read a bounded chat window (spindle.chats.getActive + getMessages)
 
 ## Done Log
 (Newest first: step / what changed / files / test result / tag)
+- 3 / bounded chat window: CHAT_CHANGED handler reads active chat via getActive(userId) +
+  getMessages; userId taken from event handler's 2nd argument (fix commit 4aa1ca7) /
+  lumiverse/src/backend.ts, lumiverse/dist/backend.js, spindle.json / install+restart test
+  PASSED (confirmed by me) / step-3 (tagged on 4aa1ca7)
 - 2 / settings stub: one global settings file via spindle.storage (operator-scoped — no userId;
   userStorage was rejected at test), fix commit f6227b3 / lumiverse/src/backend.ts,
   lumiverse/dist/backend.js, PLAN.md / install+restart test PASSED (confirmed by me) / step-2
@@ -71,12 +76,22 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - step-0 / overlay, docs, LumiWorld clone / .clinerules/, tools/, NOTES, PLAN, SETUP, .gitignore / docs copied (COPIED.txt present) / step-0
 
 ## Current Step
-- 3: PLAN.md Step 3 — read a bounded chat window (spindle.chats.getActive + getMessages)
+- 4: PLAN.md Step 4 — one generate.raw JSON call on a fixed connection id
 
 ## Next Step
-- /step.md 3 (implement + test, then /scribe.md step-3)
+- /step.md 4 (implement + test, then /scribe.md step-4)
 
 ## Known Issues
+- events.md:26 says the CHAT_CHANGED payload is { chatId }; observed runtime payload keys are:
+  chat, changedFields.
+- getActive(userId?) and the event handler's 2nd userId argument are not in the docs (types
+  only: spindle-api.d.ts:911, :174/:210); confirmed working at runtime (operator-scoped ext).
+- getMessages has no userId parameter (spindle-api.d.ts:494-495).
+- CHAT_CHANGED also fires on message changes (send, edit, delete, swipe), sometimes several
+  times per action, not only on chat switches.
+- No startup read: the window is empty until the first CHAT_CHANGED event. In memory only.
+- Temporary payload-key-names log in the CHAT_CHANGED handler — remove later.
+- Step 4 (generate.raw) must reuse the userId from the event handler's 2nd argument.
 - Settings live in spindle.storage (shared extension dir, storage.md:73, 81). If per-user
   settings are ever needed, that means userStorage + explicit userId (storage.md:83, 118-125).
 - Before Step 5 starts: (1) add the data flow and where the model-call prompt and JSON parsing
@@ -96,5 +111,5 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
   on GENERATION_STOPPED; single named breakdown entry; revision-based settings autosave.
 
 ## Last Working Version
-Tag: step-2
-Go back with: git reset --hard step-2
+Tag: step-3 (commit 4aa1ca7)
+Go back with: git reset --hard step-3
