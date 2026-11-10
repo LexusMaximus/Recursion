@@ -50,26 +50,33 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - [x] 0a. /analyze.md 1 confirmed (ST touchpoints)
 - [x] 0b. /analyze.md 2 confirmed (Lumiverse capabilities)
 - [x] 0c. /analyze.md 3 confirmed (LumiWorld patterns)
-- [ ] 0d. /analyze.md 4 confirmed (mapping), then PLAN.md steps rewritten
-- [ ] 1. Minimal extension loads in Lumiverse (see PLAN.md)
+- [x] 0d. /analyze.md 4 confirmed (mapping), then PLAN.md steps rewritten
+- [ ] 1. Minimal extension loads in Lumiverse (PLAN.md Step 1: scaffold, root spindle.json,
+      minimal backend; also 2, 3, 4, 5a-c, 6a, 6b, 7 per rewritten PLAN.md)
 
 ## Done Log
 (Newest first: step / what changed / files / test result / tag)
+- 0d / mapping + PLAN steps rewritten per decisions (in-interceptor pipeline; root spindle.json;
+  one combined block) / docs/port/MAPPING.md, PLAN.md / confirmed by me / step-0d
 - 0c / LumiWorld patterns analysis / docs/port/LUMIWORLD_PATTERNS.md / confirmed by me / step-0c
 - 0b / Lumiverse capabilities analysis / docs/port/LUMIVERSE_CAPABILITIES.md / confirmed by me / step-0b
 - 0a / ST touchpoints analysis / docs/port/ST_TOUCHPOINTS.md / confirmed by me / step-0a
 - step-0 / overlay, docs, LumiWorld clone / .clinerules/, tools/, NOTES, PLAN, SETUP, .gitignore / docs copied (COPIED.txt present) / step-0
 
 ## Current Step
-- 0d: /analyze.md 4 (mapping; requires files 1-3, all exist)
+- 1: PLAN.md Step 1 — scaffold (root spindle.json, lumiverse/ backend, committed dist)
 
 ## Next Step
-- /analyze.md 4, then /scribe.md (N = 0d), then PLAN.md steps rewritten
+- /step.md 1 (build + install test, then /scribe.md step-1)
 
 ## Known Issues
-- Code location undecided: lumiverse/ subfolder vs separate repo (check install layout in analysis 2).
-- Kit .gitignore ignores dist/. Lumiverse may need built output: check in analyses 2-3.
-- Interceptor timeout vs multi-call pipeline: unknown until analysis 2.
+- Before Step 5 starts: (1) add the data flow and where the model-call prompt and JSON parsing
+  come from (suggest a minimal hand-written prompt in 6b); (2) say which sub-step holds the
+  fixed mini-deck; (3) give exact end lines for the EOF ranges, a dependency list per sub-step,
+  and the test command.
+- GitHub push credentials: auth was rejected earlier ("Invalid username or token"); it worked
+  again after a credential refresh but is treated as UNRESOLVED — if a push fails, stop and
+  report; do not retry or touch tags.
 - Analysis 1 confirmed: only index.js + hosts/sillytavern/* + ui.mjs are host-bound; rest is PURE.
   Packet = 3 named prompt keys; unit-testable logic lives outside tests/ (assert scripts in tools/).
 - Analysis 2: interceptor timeout default 10 s (manifest override max 5 min); optional interceptor
@@ -80,5 +87,5 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
   on GENERATION_STOPPED; single named breakdown entry; revision-based settings autosave.
 
 ## Last Working Version
-Tag: step-0c
-Go back with: git reset --hard step-0c
+Tag: step-0d
+Go back with: git reset --hard step-0d
