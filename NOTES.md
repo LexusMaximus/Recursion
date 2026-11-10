@@ -53,10 +53,13 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - [x] 0d. /analyze.md 4 confirmed (mapping), then PLAN.md steps rewritten
 - [x] 1. Minimal extension loads in Lumiverse (PLAN.md Step 1: scaffold, root spindle.json,
       minimal backend; also 2, 3, 4, 5a-c, 6a, 6b, 7 per rewritten PLAN.md)
-- [ ] 2. PLAN.md Step 2 — settings stub (read/write one setting in userStorage)
+- [x] 2. PLAN.md Step 2 — settings stub (one setting via spindle.storage global/settings.json)
 
 ## Done Log
 (Newest first: step / what changed / files / test result / tag)
+- 2 / settings stub: one global settings file via spindle.storage (operator-scoped — no userId;
+  userStorage was rejected at test), fix commit f6227b3 / lumiverse/src/backend.ts,
+  lumiverse/dist/backend.js, PLAN.md / install+restart test PASSED (confirmed by me) / step-2
 - 1 / scaffold: root spindle.json + lumiverse/ backend (bun + tsc, dist committed) /
   spindle.json, lumiverse/{package.json,tsconfig.json,src/backend.ts,dist/backend.js,bun.lock},
   .gitignore / build + install test PASSED (confirmed by me) / step-1
@@ -68,12 +71,14 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - step-0 / overlay, docs, LumiWorld clone / .clinerules/, tools/, NOTES, PLAN, SETUP, .gitignore / docs copied (COPIED.txt present) / step-0
 
 ## Current Step
-- 2: PLAN.md Step 2 — settings stub (one setting in userStorage global/settings.json)
+- 3: PLAN.md Step 3 — read a bounded chat window (spindle.chats.getActive + getMessages)
 
 ## Next Step
-- /step.md 2 (implement + test, then /scribe.md step-2)
+- /step.md 3 (implement + test, then /scribe.md step-3)
 
 ## Known Issues
+- Settings live in spindle.storage (shared extension dir, storage.md:73, 81). If per-user
+  settings are ever needed, that means userStorage + explicit userId (storage.md:83, 118-125).
 - Before Step 5 starts: (1) add the data flow and where the model-call prompt and JSON parsing
   come from (suggest a minimal hand-written prompt in 6b); (2) say which sub-step holds the
   fixed mini-deck; (3) give exact end lines for the EOF ranges, a dependency list per sub-step,
@@ -91,5 +96,5 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
   on GENERATION_STOPPED; single named breakdown entry; revision-based settings autosave.
 
 ## Last Working Version
-Tag: step-1
-Go back with: git reset --hard step-1
+Tag: step-2
+Go back with: git reset --hard step-2
