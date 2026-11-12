@@ -55,9 +55,15 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
       minimal backend; also 2, 3, 4, 5a-c, 6a, 6b, 7 per rewritten PLAN.md)
 - [x] 2. PLAN.md Step 2 — settings stub (one setting via spindle.storage global/settings.json)
 - [x] 3. PLAN.md Step 3 — read a bounded chat window (spindle.chats.getActive + getMessages)
+- [x] 4. PLAN.md Step 4 — one generate.raw JSON call on a fixed connection id
 
 ## Done Log
 (Newest first: step / what changed / files / test result / tag)
+- 4 / one generate.raw JSON call on fixed connection; JSON keys parsed; connectionId persisted
+  to global/settings.json (commits 4d7b9be raw call, 2a93bfb userId in request, 239ee4d default
+  profile + log) / lumiverse/src/backend.ts, lumiverse/dist/backend.js, spindle.json /
+  install+restart test PASSED (user log: parsed keys status, test; persisted connectionId) /
+  step-4 (tag on 239ee4d, applied after notes commit)
 - 3 / bounded chat window: CHAT_CHANGED handler reads active chat via getActive(userId) +
   getMessages; userId taken from event handler's 2nd argument (fix commit 4aa1ca7) /
   lumiverse/src/backend.ts, lumiverse/dist/backend.js, spindle.json / install+restart test
@@ -76,12 +82,30 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - step-0 / overlay, docs, LumiWorld clone / .clinerules/, tools/, NOTES, PLAN, SETUP, .gitignore / docs copied (COPIED.txt present) / step-0
 
 ## Current Step
-- 4: PLAN.md Step 4 — one generate.raw JSON call on a fixed connection id
+- 5: PLAN.md Step 5 (not started; pre-work listed in Known Issues)
 
 ## Next Step
-- /step.md 4 (implement + test, then /scribe.md step-4)
+- /step.md 5: confirm scope (data flow, prompt source, deck sub-step, EOF ranges, deps, test
+  command), then implement + test, then /scribe.md step-5
 
 ## Known Issues
+- GenerationRequestDTO.userId exists in types (api.d.ts:483-488) but not in generation.md:53-62;
+  operator-scoped extensions must pass it inside the request object (LumiWorld backend.ts:986).
+- generate.raw on the `openrouter/free` profile (connection lexusmaximus) returns "OpenRouter
+  generate failed (400): No models provided"; a `custom` (koboldcpp) profile works. Normal
+  Lumiverse chat works on the OpenRouter profile. UNRESOLVED; read-only diagnosis pending (does
+  the host pass the profile model on raw calls? Does LumiWorld pass `model` in its raw
+  request?). Must be settled before Step 6b.
+- connections.list order undocumented; selection rule: saved connectionId, else is_default
+  profile, else first. Step 4 persists the first successful choice into global/settings.json
+  (sticky). Step 7 picker needs a "use default" option that clears the saved id and never
+  changes Lumiverse's own default.
+- The Step 4 fixture generate.raw call fires once per process start and spends one request.
+  Remove or gate it in Step 6.
+- Minor: in runStep4Once, a persistConnectionId failure is logged as "failed at generate.raw"
+  (stage not advanced before persist). Not fixed.
+- "[runtime] critical memory pressure" lines appeared while a local 26B model ran; no sign they
+  come from this extension. Lumiverse data disk 96.9% used.
 - events.md:26 says the CHAT_CHANGED payload is { chatId }; observed runtime payload keys are:
   chat, changedFields.
 - getActive(userId?) and the event handler's 2nd userId argument are not in the docs (types
@@ -91,7 +115,6 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
   times per action, not only on chat switches.
 - No startup read: the window is empty until the first CHAT_CHANGED event. In memory only.
 - Temporary payload-key-names log in the CHAT_CHANGED handler — remove later.
-- Step 4 (generate.raw) must reuse the userId from the event handler's 2nd argument.
 - Settings live in spindle.storage (shared extension dir, storage.md:73, 81). If per-user
   settings are ever needed, that means userStorage + explicit userId (storage.md:83, 118-125).
 - Before Step 5 starts: (1) add the data flow and where the model-call prompt and JSON parsing
@@ -109,5 +132,5 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
   on GENERATION_STOPPED; single named breakdown entry; revision-based settings autosave.
 
 ## Last Working Version
-Tag: step-3 (commit 4aa1ca7)
-Go back with: git reset --hard step-3
+Tag: step-4 (commit 239ee4d)
+Go back with: git reset --hard step-4
