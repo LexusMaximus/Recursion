@@ -1,6 +1,6 @@
 // Ported from Recursion src/settings.mjs (MIT License, Copyright (c) 2026 Josh Shapiro).
 // Source lines: 19-22, 38-39, 43-47, 60-68 (trimmed defaults), 87-91 (injection defaults),
-// 136-139, 147-153, 161-172. Full license: LICENSE (repo root).
+// 136-139, 147-153, 161-172, 32-33 + 174-194 (5a additions). Full license: LICENSE (repo root).
 // REDUCED: normalizeSettings below replaces src/settings.mjs:395-444 (see DEVIATION comment).
 const STRENGTHS = new Set(['light', 'balanced', 'strong']);
 const REASONING_LEVELS = new Set(['low', 'medium', 'high', 'ultra']);
@@ -73,5 +73,34 @@ export function normalizeSettings(value = {}) {
     promptFootprint: enumValue(source.promptFootprint, FOOTPRINTS, DEFAULT_RECURSION_SETTINGS.promptFootprint),
     focus: enumValue(source.focus, FOCUS, DEFAULT_RECURSION_SETTINGS.focus),
     injection: { ...DEFAULT_RECURSION_SETTINGS.injection }
+  };
+}
+
+// 5a additions (packet injection plan). INJECTION_PLACEMENTS / INJECTION_ROLES:
+// src/settings.mjs:32-33. normalizeInjectionDepth: src/settings.mjs:174-185 (uses
+// DEFAULT_RECURSION_SETTINGS.injection and enumValue, both already present above).
+// normalizeInjectionSettings: src/settings.mjs:187-194.
+const INJECTION_PLACEMENTS = new Set(['in_prompt', 'in_chat']);
+const INJECTION_ROLES = new Set(['system', 'user', 'assistant']);
+
+function normalizeInjectionDepth(value) {
+  const fallback = DEFAULT_RECURSION_SETTINGS.injection.depth;
+  if (value === null || value === undefined) return fallback;
+  if (Array.isArray(value) || typeof value === 'boolean' || typeof value === 'object') return fallback;
+  if (typeof value === 'string') {
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed || trimmed === 'default') return fallback;
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.round(Math.min(10, Math.max(0, number)));
+}
+
+export function normalizeInjectionSettings(value = {}) {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    placement: enumValue(source.placement, INJECTION_PLACEMENTS, DEFAULT_RECURSION_SETTINGS.injection.placement),
+    role: enumValue(source.role, INJECTION_ROLES, DEFAULT_RECURSION_SETTINGS.injection.role),
+    depth: normalizeInjectionDepth(source.depth)
   };
 }
