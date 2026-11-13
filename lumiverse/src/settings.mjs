@@ -63,7 +63,7 @@ export function normalizeCardBudgetSettings(value = {}) {
 // (src/settings-policy.mjs:111-127) reads — strength, cardsPerTurn, reasoningLevel,
 // promptFootprint, focus, injection — with the same defaults as src/settings.mjs:60-68
 // (injection defaults are the source defaults from src/settings.mjs:87-91; the source
-// normalizeInjectionSettings path is not ported in 5b, approved by the manager).
+// normalizeInjectionSettings path is ported as a 5a addition below — src/settings.mjs:187-194).
 export function normalizeSettings(value = {}) {
   const source = value && typeof value === 'object' ? value : {};
   return {
