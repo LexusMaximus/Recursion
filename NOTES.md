@@ -56,9 +56,21 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - [x] 2. PLAN.md Step 2 — settings stub (one setting via spindle.storage global/settings.json)
 - [x] 3. PLAN.md Step 3 — read a bounded chat window (spindle.chats.getActive + getMessages)
 - [x] 4. PLAN.md Step 4 — one generate.raw JSON call on a fixed connection id
+- [x] 5. PLAN.md Step 5 — PURE ports + assert tests (5a packet composition, 5b hand
+      selection, 5c card validation; tags step-5a/5b/5c)
 
 ## Done Log
 (Newest first: step / what changed / files / test result / tag)
+- 5 / PURE ports + assert tests, one commit per sub-step: 5a packet composition
+  (lumiverse/src/packet.mjs), 5b hand selection (lumiverse/src/cards.mjs), 5c card
+  validation; shared dependency ports + fixed mini-deck (lumiverse/src/deck.ts). Facts:
+  composeGuidanceForCards keeps source line 747 (its closing brace); cleanProviderPromptText
+  is exported by deviation (src/cards.mjs:416 -> export at lumiverse/src/cards.mjs:760) /
+  lumiverse/src/{card-selection,cards,core,deck.ts,instruction-safety,packet,safe-values,
+  settings,settings-policy,story-form}.mjs, lumiverse/tests/{helpers,packet,cards,
+  card-validation}.mjs, lumiverse/tsconfig.json / assert tests PASSED (bun
+  lumiverse/tests/{packet,cards,card-validation}.mjs) / tags step-5a 154dacd, step-5b 8f9611a,
+  step-5c 7fcb90f (no step-5 tag; notes commit is untagged)
 - 4 / one generate.raw JSON call on fixed connection; JSON keys parsed; connectionId persisted
   to global/settings.json (commits 4d7b9be raw call, 2a93bfb userId in request, 239ee4d default
   profile + log) / lumiverse/src/backend.ts, lumiverse/dist/backend.js, spindle.json /
@@ -82,11 +94,13 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - step-0 / overlay, docs, LumiWorld clone / .clinerules/, tools/, NOTES, PLAN, SETUP, .gitignore / docs copied (COPIED.txt present) / step-0
 
 ## Current Step
-- 5: PLAN.md Step 5 (not started; pre-work listed in Known Issues)
+- 6a: PLAN.md Step 6a — interceptor injects a hard-coded block (not started)
 
 ## Next Step
-- /step.md 5: confirm scope (data flow, prompt source, deck sub-step, EOF ranges, deps, test
-  command), then implement + test, then /scribe.md step-5
+- /step.md 6a: confirm scope (hard-coded text + breakdown name, interceptorTimeoutMs clamp
+  [1000, 300000] ms, permission `interceptor`), implement + test (hard-coded "Recursion
+  Guidance" block visible in Prompt Breakdown on one real chat), then /scribe.md step-6a.
+  6b rebuilds dist/ with the real pipeline (Step 5 modules + Step 4 call).
 
 ## Known Issues
 - GenerationRequestDTO.userId exists in types (api.d.ts:483-488) but not in generation.md:53-62;
@@ -117,10 +131,6 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - Temporary payload-key-names log in the CHAT_CHANGED handler — remove later.
 - Settings live in spindle.storage (shared extension dir, storage.md:73, 81). If per-user
   settings are ever needed, that means userStorage + explicit userId (storage.md:83, 118-125).
-- Before Step 5 starts: (1) add the data flow and where the model-call prompt and JSON parsing
-  come from (suggest a minimal hand-written prompt in 6b); (2) say which sub-step holds the
-  fixed mini-deck; (3) give exact end lines for the EOF ranges, a dependency list per sub-step,
-  and the test command.
 - GitHub push: push works from the user's own PowerShell; Cline never pushes.
 - Analysis 1 confirmed: only index.js + hosts/sillytavern/* + ui.mjs are host-bound; rest is PURE.
   Packet = 3 named prompt keys; unit-testable logic lives outside tests/ (assert scripts in tools/).
@@ -132,5 +142,5 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
   on GENERATION_STOPPED; single named breakdown entry; revision-based settings autosave.
 
 ## Last Working Version
-Tag: step-4 (commit 239ee4d)
-Go back with: git reset --hard step-4
+Tag: step-5a (commit 154dacd)
+Go back with: git reset --hard step-5a
