@@ -27,8 +27,9 @@
   NOTES.md: named card-guidance block visible in Prompt Breakdown on one real chat).
 - Layout: fork root holds spindle.json (permissions added per step) + lumiverse/ port code
   (package.json, tsconfig, src, committed dist). ST files untouched and read-only.
-- Tier 0 path: scaffold → settings stub (userStorage) → windowed chat read (chats +
-  chat_mutation) → one generate.raw JSON call (generation) → fixed mini-deck + PURE ports
+- Tier 0 path: scaffold → settings stub (spindle.storage, operator-scoped; verified
+  (lumiverse/src/backend.ts:15-28)) → windowed chat read (chats + chat_mutation) → one
+  generate.raw JSON call (generation) → fixed mini-deck + PURE ports
   with assert tests (no permission) → interceptor injects hard-coded block (interceptor),
   then the real pipeline (6b) → minimal drawer-tab frontend.
 - Pipeline placement: inside the interceptor, `interceptorTimeoutMs` per docs clamp; failure
@@ -99,9 +100,10 @@ spindle.json; ONE combined Prompt Breakdown block. Docs paths under docs/lumiver
 - Checkpoint: /scribe.md (step-2)
 
 ### Step 3: Read a bounded chat window
-- What changes: `spindle.chats.getActive()` + `spindle.chat.getMessages(chatId)`, keep the
-  last N messages in extension storage; refresh on `CHAT_CHANGED`
-  (ref/backend-api/chats.md:22-29, 72-96; ref-later/backend-api/events.md:26).
+- What changes: `spindle.chats.getActive()` + `spindle.chat.getMessages(chatId)`, with the
+  last N messages kept in memory only; refresh on `CHAT_CHANGED`
+  (ref/backend-api/chats.md:22-29, 72-96; ref-later/backend-api/events.md:26; verified
+  (lumiverse/src/backend.ts:11-13)).
 - Files touched: lumiverse/src/backend.ts, lumiverse/dist/backend.js, spindle.json (permissions).
 - How I test it: open a chat; log line shows the correct windowed message count.
 - CHAT_CHANGED subscription permission: NONE needed. "Events — subscribe to any Lumiverse
@@ -114,7 +116,9 @@ spindle.json; ONE combined Prompt Breakdown block. Docs paths under docs/lumiver
 
 ### Step 4: One model call returning JSON
 - What changes: one `spindle.generate.raw({ connection_id, messages, parameters, signal })`
-  call, response parsed to JSON and stored (ref/backend-api/generation.md:7-20, 53-62). This
+  call, response parsed and logged; only connectionId persisted to global/settings.json
+  (ref/backend-api/generation.md:7-20, 53-62; verified (lumiverse/src/backend.ts:71-80;
+  lumiverse/src/backend.ts:107-126)). This
   call IS the Tier 0 pipeline (decision 1: in-interceptor); proven standalone here first.
 - connection_id before Step 7: temporary default = FIRST entry returned by
   `spindle.connections.list()` (generation.md:787-815; `list` confirmed in generation.md) when
@@ -125,26 +129,44 @@ spindle.json; ONE combined Prompt Breakdown block. Docs paths under docs/lumiver
 - Permission added: `generation` (raw + connections.list — permissions.md:30).
 - Checkpoint: /scribe.md (step-4)
 
-### Step 5: Fixed mini-deck + PURE logic ports (sub-steps)
+### Step 5: Fixed mini-deck + PURE logic ports (sub-steps) — DONE (verified (NOTES.md:64-73))
 - What changes: static small deck defined in code (no deck editing, no card-state UI); port
-  the PURE subsets named in docs/port/ST_TOUCHPOINTS.md §Port-Relevant Summary — one module
-  per sub-step. Assert-based tests under lumiverse/tests/ mirroring Recursion's tools/scripts
-  pattern (no test framework; ST_TOUCHPOINTS §Tests).
-- Files touched (per sub-step): lumiverse/src/<module>.ts (new), lumiverse/tests/<module>.mjs
-  (new). NO dist rebuild in step 5 — the rebuild+commit happens in Step 6b.
+  the PURE subsets named in docs/port/ST_TOUCHPOINTS.md §Port-Relevant Summary.
+- Module layout: ports are `.mjs`: `cards.mjs` (5b+5c), `core.mjs`, `settings.mjs`,
+  `settings-policy.mjs`, `card-selection.mjs`, `instruction-safety.mjs`, `packet.mjs`,
+  `story-form.mjs`, and `safe-values.mjs` (verified (lumiverse/src/cards.mjs:1;
+  lumiverse/src/core.mjs:1; lumiverse/src/settings.mjs:1; lumiverse/src/settings-policy.mjs:1;
+  lumiverse/src/card-selection.mjs:1; lumiverse/src/instruction-safety.mjs:1;
+  lumiverse/src/packet.mjs:1; lumiverse/src/story-form.mjs:1; lumiverse/src/safe-values.mjs:1));
+  `deck.ts` is ours (verified (lumiverse/src/deck.ts:1-3)). Ports are near-byte-identical —
+  inferred (source headers and inline deviation notes). `allowJs` is true in
+  `lumiverse/tsconfig.json` (verified (lumiverse/tsconfig.json:6)). Tests live in
+  `lumiverse/tests/`: `helpers.mjs`, `cards.mjs`, `card-validation.mjs`, and `packet.mjs`
+  (verified (lumiverse/tests/helpers.mjs:1-4; lumiverse/tests/cards.mjs:1-4;
+  lumiverse/tests/card-validation.mjs:1-4; lumiverse/tests/packet.mjs:1-4)).
+- Files touched: `lumiverse/src/*.mjs`, `lumiverse/src/deck.ts`, `lumiverse/tsconfig.json`, and
+  `lumiverse/tests/*.mjs`. NO dist rebuild in Step 5 — the rebuild+commit happens in Step 6b.
 - Permission added: none (PURE logic, no host API).
 - Source functions and line ranges ported (exact; NOTE: none of this logic lives in
   src/extension/index.js — it lives in src/prompt.mjs and src/cards.mjs per the analysis-1
   file map; src/extension/index.js:769-796 is the HOST-BOUND interceptor, ported as 6b logic):
-  - 5a packet composition ← src/prompt.mjs: `composePromptPacket` (986-1117),
-    `validatePromptPacket` (1118-1148), `packetToPromptBlocks` (1149-EOF), plus its text/
-    budget helpers `cleanText` (90) through `estimateTokens` (146) as needed.
-  - 5b hand selection ← src/cards.mjs: `selectHand` (1376-EOF) with helpers `sanitizeHandCard`
-    (746), `sortCardsForHand` (784), `effectiveMaxCardsForPolicy` (823), `plannedCardForJob`
-    (830), `limitCardJobsForHandBudget` (852-920).
-  - 5c card validation ← src/cards.mjs: `providerCardRejectReason` (648-686), `normalizeCard`
-    (921-974), evidence/text guards `normalizeEvidenceRefs` (479) through
-    `assertCardPromptTextSafe` (541-550).
+  - 5a packet composition ← src/prompt.mjs (1170 lines): `composePromptPacket` (986-1070),
+    `validatePromptPacket` (1118-1147), and `packetToPromptBlocks` (1149-1170, EOF)
+    (verified (src/prompt.mjs:986-1070; src/prompt.mjs:1118-1147;
+    src/prompt.mjs:1149-1170)). `normalizeReasonerUse` (155-158) and `shouldUseReasoner`
+    (160-165) are CUT; `safeEvidenceRef` (190-194) and `normalizeEvidenceRefs` (196-204) are
+    kept; `hiddenReasoningDetected` (342-349), `filterGuidanceIds` (351-361), and
+    `filterGuidanceOmissions` (363-378) are kept; `composeGuidanceForCards` keeps 691-708
+    plus the closing brace at line 747 (verified (src/prompt.mjs:155-165;
+    src/prompt.mjs:190-204; src/prompt.mjs:342-378; src/prompt.mjs:691-708;
+    src/prompt.mjs:747)).
+  - 5b hand selection ← src/cards.mjs (1508 lines) source ranges 746-763, 765-792, 794-821, 823-828,
+    830-850, 852-903, and 1376-1508 (verified (lumiverse/src/cards.mjs:2-4)).
+  - 5c card validation ← src/cards.mjs source ranges 12-13, 16-17, 21-54, 138, 143-164,
+    180-211, 213-398, 416-418, 457-460, 468-473, 489-512, 514-549, 648-725, and 921-973
+    (verified (lumiverse/src/cards.mjs:9-11)); `providerCardRejectReason` (648-685),
+    `normalizeCard` (921-973), and `scrubProviderPromptSecrets` (385-398)
+    (verified (src/cards.mjs:385-398; src/cards.mjs:648-685; src/cards.mjs:921-973)).
 - How I test each sub-step (its own test, name = module):
   - 5a packet composition: given a fixture hand + settings, the composed packet sections match
     the expected fixture (labels, order, verbatim evidence text).
@@ -153,7 +175,8 @@ spindle.json; ONE combined Prompt Breakdown block. Docs paths under docs/lumiver
   - 5c card validation: given fixture card objects (valid, malformed, secret-looking),
     valid ones pass and invalid ones are rejected with the expected reason.
 - Rule: each sub-step leaves all prior tests passing.
-- Checkpoint: /scribe.md per sub-step (step-5a, 5b, 5c)
+- Checkpoint: DONE — tags `step-5a` 154dacd, `step-5b` 8f9611a, `step-5c` 7fcb90f;
+  no `step-5` tag (verified (NOTES.md:64-73)).
 
 ### Step 6a: Interceptor injects a hard-coded block
 - What changes: `spindle.registerInterceptor` returns ONE combined system message with
@@ -161,6 +184,9 @@ spindle.json; ONE combined Prompt Breakdown block. Docs paths under docs/lumiver
   (ref/backend-api/interceptors.md:80-108; pattern: ref/examples/prompt-interceptor.md:36-54).
   Manifest gets `entry_backend` unchanged plus `interceptorTimeoutMs` (default 10 s; clamp
   [1000, 300000] ms — interceptors.md:183-193). No model call yet.
+- Open question: 6a changes backend.ts and spindle.json, and Lumiverse installs from the committed
+  lumiverse/dist/backend.js, so testing 6a in Lumiverse likely needs a dist rebuild; settle in the
+  6a scope-confirm. (inferred)
 - Files touched: spindle.json (permissions, interceptorTimeoutMs), lumiverse/src/backend.ts,
   lumiverse/dist/backend.js (rebuild+commit).
 - How I test it: on one real chat, the hard-coded "Recursion Guidance" block appears in

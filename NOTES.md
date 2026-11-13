@@ -133,7 +133,9 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
   settings are ever needed, that means userStorage + explicit userId (storage.md:83, 118-125).
 - GitHub push: push works from the user's own PowerShell; Cline never pushes.
 - Analysis 1 confirmed: only index.js + hosts/sillytavern/* + ui.mjs are host-bound; rest is PURE.
-  Packet = 3 named prompt keys; unit-testable logic lives outside tests/ (assert scripts in tools/).
+  Packet = 3 named prompt keys.
+- Step 5 tests live in lumiverse/tests/ (bun lumiverse/tests/<module>.mjs; no framework, helpers.mjs);
+  not type-checked, not part of the build.
 - Analysis 2: interceptor timeout default 10 s (manifest override max 5 min); optional interceptor
   timeouts drop changes silently. spindle.json at repo root; dist/ auto-built (bun) if missing.
   Model calls: spindle.generate.raw(connection_id)/quiet/batch; no native card-deck equivalent.
