@@ -19,6 +19,39 @@ try {
 } catch (error) {
   spindle.log.error(`settings: failed to load or create \u2014 ${String(error)}`);
 }
+var RECURSION_GUIDANCE_TEXT = "[Recursion Guidance] Step 6a test guidance.";
+var RECURSION_GUIDANCE_NAME = "Recursion Guidance";
+var interceptorRegistered = false;
+function tryRegisterInterceptor() {
+  if (interceptorRegistered)
+    return;
+  if (!spindle.permissions.has("interceptor"))
+    return;
+  spindle.registerInterceptor(async (messages) => {
+    try {
+      const injected = {
+        role: "system",
+        content: RECURSION_GUIDANCE_TEXT
+      };
+      const injectedMessages = [injected, ...messages];
+      spindle.log.info(`interceptor: injected messageIndex=0 breakdownEntries=1 messageCount=${injectedMessages.length}`);
+      return {
+        messages: injectedMessages,
+        breakdown: [{ messageIndex: 0, name: RECURSION_GUIDANCE_NAME }]
+      };
+    } catch {
+      spindle.log.error(`interceptor: failed; messages unchanged messageCount=${messages.length}`);
+      return messages;
+    }
+  });
+  interceptorRegistered = true;
+  spindle.log.info("interceptor: registered priority=100 timeoutMs=10000");
+}
+tryRegisterInterceptor();
+spindle.permissions.onChanged(({ permission, granted }) => {
+  if (permission === "interceptor" && granted)
+    tryRegisterInterceptor();
+});
 var step4Done = false;
 var FIXTURE_PROMPT = 'Return exactly this JSON object and nothing else: {"status":"ok","test":"recursion-step4"}';
 async function resolveConnectionId(userId) {

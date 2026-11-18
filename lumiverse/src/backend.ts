@@ -34,6 +34,45 @@ try {
   spindle.log.error(`settings: failed to load or create — ${String(error)}`)
 }
 
+// ---- Step 6a: inject one hard-coded guidance block ----
+const RECURSION_GUIDANCE_TEXT = '[Recursion Guidance] Step 6a test guidance.'
+const RECURSION_GUIDANCE_NAME = 'Recursion Guidance'
+
+let interceptorRegistered = false
+
+function tryRegisterInterceptor(): void {
+  if (interceptorRegistered) return
+  if (!spindle.permissions.has('interceptor')) return
+
+  spindle.registerInterceptor(async (messages) => {
+    try {
+      const injected = {
+        role: 'system' as const,
+        content: RECURSION_GUIDANCE_TEXT,
+      }
+      const injectedMessages = [injected, ...messages]
+      spindle.log.info(
+        `interceptor: injected messageIndex=0 breakdownEntries=1 messageCount=${injectedMessages.length}`,
+      )
+      return {
+        messages: injectedMessages,
+        breakdown: [{ messageIndex: 0, name: RECURSION_GUIDANCE_NAME }],
+      }
+    } catch {
+      spindle.log.error(`interceptor: failed; messages unchanged messageCount=${messages.length}`)
+      return messages
+    }
+  })
+
+  interceptorRegistered = true
+  spindle.log.info('interceptor: registered priority=100 timeoutMs=10000')
+}
+
+tryRegisterInterceptor()
+spindle.permissions.onChanged(({ permission, granted }) => {
+  if (permission === 'interceptor' && granted) tryRegisterInterceptor()
+})
+
 // ---- Step 4: one generate.raw JSON call (PLAN.md Step 4) ----
 // Runs at most once per process: CHAT_CHANGED fires several times per action
 // (NOTES.md Known Issues) and each call costs tokens. The flag is set
