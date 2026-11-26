@@ -34,3 +34,18 @@
 ## Before any step
 - Read NOTES.md, then docs/port/MAPPING.md (once it exists).
 - Attach/read only the docs the current step lists in PLAN.md.
+
+## Command discipline (Windows output capture is unreliable)
+- Never run the same command twice. If output is empty, truncated, or "exit 1", do NOT
+  retry: say so and STOP.
+- Never run: git config, any git command without --no-pager, or interactive commands.
+- For anything whose output matters, redirect it to a file and read it with the read tool:
+  <command> *> "$env:TEMP\out.txt"; "done"
+  then read $env:TEMP\out.txt. One attempt only.
+- If that file is also empty, STOP and give me the exact command to run in my own PowerShell.
+- Maximum 2 failed commands in a row, then STOP and report.
+- Edit files ONLY with the edit/write tools, never PowerShell redirection, Set-Content or
+  Out-File (Step 7 corrupted UTF-8 into mojibake that way). Files are UTF-8 without BOM.
+  Use ASCII only in anything you write (comments, log strings, UI text).
+- For verification, run the single script verify-step.ps1 once and read its report file
+  ($env:TEMP\recursion-verify.txt). Do not re-run the individual commands.
