@@ -26,7 +26,12 @@ declare const spindle: import('lumiverse-spindle-types').SpindleAPI
 export {}
 
 const SETTINGS_PATH = 'global/settings.json'
-const DEFAULT_SETTINGS = { connectionId: '' }
+// Step 7 (Option A): `enabled` defaults ON — a stored file without the field
+// reads as enabled via the `!== false` coalescing at every read site.
+// `connectionId: ''` means "use default": resolved per run (saved id ->
+// is_default profile -> first), and NEVER written by the interceptor. The
+// frontend picker (set_connection) is the only writer of connectionId.
+const DEFAULT_SETTINGS = { enabled: true, connectionId: '' }
 const WINDOW_SIZE = 20
 
 // MUST mirror interceptorTimeoutMs in spindle.json — change both together
@@ -188,6 +193,22 @@ function tryRegisterInterceptor(): void {
   if (!spindle.permissions.has('interceptor')) return
 
   spindle.registerInterceptor(async (messages, context) => {
+    // Enabled gate FIRST (manager decision): one storage read per generation.
+    // No documented storage watch API to cache against (storage.md:44-59).
+    let settings: typeof DEFAULT_SETTINGS
+    try {
+      settings = await spindle.storage.getJson<typeof DEFAULT_SETTINGS>(SETTINGS_PATH, {
+        fallback: DEFAULT_SETTINGS,
+      })
+    } catch {
+      // Fixed label, no error text (manager rule 3).
+      spindle.log.warn(`pipeline: settings read failed promptMessages unchanged=${messages.length}`)
+      return messages
+    }
+    if (settings.enabled === false) {
+      spindle.log.info(`pipeline: disabled promptMessages unchanged=${messages.length}`)
+      return messages
+    }
     const contextUserId = typeof context?.userId === 'string' ? context.userId : ''
     const userId = contextUserId || lastKnownUserId
     const userIdSource = contextUserId ? 'context' : lastKnownUserId ? 'event' : 'none'
@@ -305,23 +326,17 @@ function tryRegisterInterceptor(): void {
         return messages
       }
 
-      // Sticky connection id: persist once, on first successful use (PLAN.md:121).
-      if (resolved.saveNeeded) {
-        try {
-          await persistConnectionId(resolved.connectionId)
-        } catch (error) {
-          spindle.log.error(
-            `pipeline: failed at persist connectionId — ${error instanceof Error ? error.message : String(error)}`,
-          )
-        }
-      }
-
       stage = 'inject'
       // THREE packet blocks -> ONE message + ONE breakdown entry (decision 3).
       const injected = [{ role: 'system' as const, content: combined }, ...messages]
+      const injectedBlocks = blocks.filter((block: { text?: string }) =>
+        String(block?.text ?? '').trim(),
+      ).length
       spindle.log.info(
-        `pipeline: injected messageIndex=0 blocks=${blocks.filter((block: { text?: string }) => String(block?.text ?? '').trim()).length}/3 promptMessages=${injected.length}`,
+        `pipeline: injected messageIndex=0 blocks=${injectedBlocks}/3 promptMessages=${injected.length}`,
       )
+      // Readout to the drawer tab: status label + counts only (manager rule 6).
+      sendRunStatus('injected', { blocks: injectedBlocks, promptMessages: injected.length }, userId)
       return {
         messages: injected,
         breakdown: [{ messageIndex: 0, name: RECURSION_GUIDANCE_NAME }],
@@ -331,6 +346,7 @@ function tryRegisterInterceptor(): void {
       spindle.log.error(
         `pipeline: failed stage=${stage} error=${message.slice(0, 200)} promptMessages unchanged=${messages.length}`,
       )
+      sendRunStatus('failed', { stage, promptMessages: messages.length }, userId)
       return messages
     }
   })
@@ -345,18 +361,16 @@ spindle.permissions.onChanged(({ permission, granted }) => {
   if (permission === 'interceptor' && granted) tryRegisterInterceptor()
 })
 
-// ---- Pipeline connection helpers (kept from Step 4; the one-shot fixture
-// call and the quiet/diag probe code were removed in Step 6b) ----
-async function resolveConnectionId(
-  userId: string,
-): Promise<{ connectionId: string; saveNeeded: boolean } | null> {
-  // Saved setting wins; otherwise first entry of connections.list
-  // (generation.md:753-759; PLAN.md Step 4 temporary default until Step 7).
+// ---- Pipeline connection helpers ----
+// Step 7 (Option A): read-only resolution — saved id -> is_default profile ->
+// first entry (generation.md:753-768, 761 pattern). The interceptor NEVER
+// writes connectionId; the frontend picker (set_connection) is the only writer.
+async function resolveConnectionId(userId: string): Promise<{ connectionId: string } | null> {
   const settings = await spindle.storage.getJson<typeof DEFAULT_SETTINGS>(SETTINGS_PATH, {
     fallback: DEFAULT_SETTINGS,
   })
   if (typeof settings.connectionId === 'string' && settings.connectionId) {
-    return { connectionId: settings.connectionId, saveNeeded: false }
+    return { connectionId: settings.connectionId }
   }
   // Operator-scoped extension: pass userId to scope the list (spindle-api.d.ts:642-646).
   const connections = await spindle.connections.list(userId)
@@ -368,22 +382,166 @@ async function resolveConnectionId(
   // provider/model deliberately NOT logged (manager rule: no provider/model).
   const chosen = connections.find((c) => c.is_default) ?? connections[0]
   spindle.log.info(`pipeline: connection selected id=${chosen.id} default=${chosen.is_default}`)
-  return { connectionId: chosen.id, saveNeeded: true }
+  return { connectionId: chosen.id }
 }
 
-async function persistConnectionId(connectionId: string): Promise<void> {
-  // Persisted on FIRST SUCCESSFUL USE (PLAN.md:121), by read-merge-write of the
-  // FULL settings object (manager change 2) — never clobber other keys.
-  // spindle.storage, no userId (storage.md:73, 81).
+
+
+// ---- Step 7: frontend drawer-tab messaging ----
+// Channel docs: spindle.onFrontendMessage / sendToFrontend
+// (frontend-communication.md:23-63); ctx.sendToBackend / ctx.onBackendMessage
+// (backend-communication.md:3-21). Free tier (permissions.md:21).
+// Payloads carry ONLY: status labels, stage names, ms, counts, connection
+// entries { id, name, provider, model, is_default }, enabled, connectionId.
+// Never guidance/model/message text, userId, api_url, metadata, or keys.
+
+type ConnectionOption = {
+  id: string
+  name: string
+  provider: string
+  model: string
+  is_default: boolean
+}
+
+// Whitelist projection of ConnectionProfileDTO (generation.md:799-814) —
+// api_url, metadata, preset_id, reasoning_bindings, timestamps, has_api_key
+// are deliberately dropped.
+function toConnectionOptions(
+  connections: Awaited<ReturnType<typeof spindle.connections.list>>,
+): ConnectionOption[] {
+  const options: ConnectionOption[] = []
+  for (const connection of connections) {
+    const id = typeof connection?.id === 'string' ? connection.id : ''
+    if (!id) continue
+    options.push({
+      id,
+      name: typeof connection.name === 'string' ? connection.name : id,
+      provider: typeof connection.provider === 'string' ? connection.provider : '',
+      model: typeof connection.model === 'string' ? connection.model : '',
+      is_default: connection.is_default === true,
+    })
+  }
+  return options
+}
+
+// Interceptor-path readout: own try/catch, always passes userId, sends nothing
+// when no userId is known (frontend-communication.md:17-21, 43).
+function sendRunStatus(
+  status: 'injected' | 'failed',
+  fields: { stage?: string; ms?: number; blocks?: number; promptMessages?: number },
+  userId: string,
+): void {
+  if (!userId) return
+  try {
+    spindle.sendToFrontend({ type: 'run_status', status, ...fields }, userId)
+  } catch {
+    // Best-effort readout; nothing else to do.
+  }
+}
+
+async function sendState(userId: string): Promise<void> {
   const settings = await spindle.storage.getJson<typeof DEFAULT_SETTINGS>(SETTINGS_PATH, {
     fallback: DEFAULT_SETTINGS,
   })
-  const merged = { ...DEFAULT_SETTINGS, ...settings, connectionId }
-  await spindle.storage.setJson(SETTINGS_PATH, merged, { indent: 2 })
-  spindle.log.info(`pipeline: persisted connectionId ${connectionId} to settings`)
+  // The state reply ALWAYS goes out, even when the connections list fails
+  // (fixed label, no error text — manager rule 3).
+  let connections: ConnectionOption[] = []
+  try {
+    connections = toConnectionOptions(await spindle.connections.list(userId))
+    // Count only in logs — never provider/model names (manager rule 10).
+    spindle.log.info(`ui: connections listed count=${connections.length}`)
+  } catch {
+    spindle.log.warn('ui: connections list failed')
+  }
+  spindle.sendToFrontend(
+    {
+      type: 'state',
+      enabled: settings.enabled !== false,
+      connectionId: typeof settings.connectionId === 'string' ? settings.connectionId : '',
+      connections,
+    },
+    userId,
+  )
 }
 
+// Read-merge-write of ONE key (manager correction 2) — never clobber the other.
+// spindle.storage needs no userId (storage.md:73, 81).
+async function writeSettingsKey(
+  key: 'enabled' | 'connectionId',
+  value: boolean | string,
+): Promise<void> {
+  const settings = await spindle.storage.getJson<typeof DEFAULT_SETTINGS>(SETTINGS_PATH, {
+    fallback: DEFAULT_SETTINGS,
+  })
+  const merged = { ...DEFAULT_SETTINGS, ...settings, [key]: value }
+  await spindle.storage.setJson(SETTINGS_PATH, merged, { indent: 2 })
+}
 
+async function handleFrontendMessage(type: string, payload: unknown, userId: string): Promise<void> {
+  switch (type) {
+    case 'get_state':
+      await sendState(userId)
+      return
+    case 'set_enabled': {
+      const value = (payload as { value?: unknown } | null)?.value
+      if (typeof value !== 'boolean') throw new Error('invalid set_enabled value')
+      await writeSettingsKey('enabled', value)
+      spindle.log.info(`ui: set enabled=${value}`)
+      await sendState(userId)
+      return
+    }
+    case 'set_connection': {
+      const value = (payload as { value?: unknown } | null)?.value
+      if (typeof value !== 'string') throw new Error('invalid set_connection value')
+      if (value === '') {
+        // "Use default": clear the saved id (Option A). Lumiverse's own default
+        // profile is never touched — we only write our own settings file.
+        await writeSettingsKey('connectionId', '')
+        spindle.log.info('ui: cleared connectionId (use default)')
+      } else {
+        // Non-empty id: verify it exists first; unknown id -> error reply, no write.
+        const profile = await spindle.connections.get(value, userId)
+        if (!profile) {
+          spindle.log.error('ui: handler failed type=set_connection')
+          spindle.sendToFrontend({ type: 'error' }, userId)
+          return
+        }
+        await writeSettingsKey('connectionId', value)
+        spindle.log.info(`ui: set connectionId=${value}`)
+      }
+      await sendState(userId)
+      return
+    }
+  }
+}
+
+const KNOWN_FRONTEND_MESSAGE_TYPES = ['get_state', 'set_enabled', 'set_connection']
+
+spindle.onFrontendMessage((payload, userId) => {
+  // Remember the sender's id (never logged) as the interceptor's fallback
+  // userId source, alongside the CHAT_CHANGED 2nd argument.
+  if (typeof userId === 'string' && userId) lastKnownUserId = userId
+  const rawType = (payload as { type?: unknown } | null)?.type
+  const type = typeof rawType === 'string' ? rawType : ''
+  if (!KNOWN_FRONTEND_MESSAGE_TYPES.includes(type)) {
+    // Log and ignore — the unknown type string is never echoed into the log.
+    spindle.log.info('ui: unknown message type ignored')
+    return
+  }
+  if (typeof userId !== 'string' || !userId) {
+    spindle.log.warn('ui: no userId on message, skipped')
+    return
+  }
+  void handleFrontendMessage(type, payload, userId).catch(() => {
+    // Fixed label, no error text (manager rules 1, 10).
+    spindle.log.error(`ui: handler failed type=${type}`)
+    try {
+      spindle.sendToFrontend({ type: 'error' }, userId)
+    } catch {
+      // Best-effort error reply.
+    }
+  })
+})
 
 function hasChatPermissions(): boolean {
   // permissions.md:178 — spindle.permissions.has() is the documented check.

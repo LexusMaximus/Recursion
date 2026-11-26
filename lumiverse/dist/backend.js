@@ -1538,7 +1538,7 @@ function packetToPromptBlocks(packet) {
 // src/backend.ts
 var composePacket = composePromptPacket;
 var SETTINGS_PATH = "global/settings.json";
-var DEFAULT_SETTINGS = { connectionId: "" };
+var DEFAULT_SETTINGS = { enabled: true, connectionId: "" };
 var WINDOW_SIZE = 20;
 var INTERCEPTOR_TIMEOUT_MS = 30000;
 var RAW_BUDGET_MS = INTERCEPTOR_TIMEOUT_MS - 5000;
@@ -1635,6 +1635,19 @@ function tryRegisterInterceptor() {
   if (!spindle.permissions.has("interceptor"))
     return;
   spindle.registerInterceptor(async (messages, context) => {
+    let settings;
+    try {
+      settings = await spindle.storage.getJson(SETTINGS_PATH, {
+        fallback: DEFAULT_SETTINGS
+      });
+    } catch {
+      spindle.log.warn(`pipeline: settings read failed promptMessages unchanged=${messages.length}`);
+      return messages;
+    }
+    if (settings.enabled === false) {
+      spindle.log.info(`pipeline: disabled promptMessages unchanged=${messages.length}`);
+      return messages;
+    }
     const contextUserId = typeof context?.userId === "string" ? context.userId : "";
     const userId = contextUserId || lastKnownUserId;
     const userIdSource = contextUserId ? "context" : lastKnownUserId ? "event" : "none";
@@ -1724,16 +1737,11 @@ function tryRegisterInterceptor() {
         spindle.log.warn(`pipeline: skipped \u2014 combined block text empty promptMessages unchanged=${messages.length}`);
         return messages;
       }
-      if (resolved.saveNeeded) {
-        try {
-          await persistConnectionId(resolved.connectionId);
-        } catch (error) {
-          spindle.log.error(`pipeline: failed at persist connectionId \u2014 ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
       stage = "inject";
       const injected = [{ role: "system", content: combined }, ...messages];
-      spindle.log.info(`pipeline: injected messageIndex=0 blocks=${blocks.filter((block) => String(block?.text ?? "").trim()).length}/3 promptMessages=${injected.length}`);
+      const injectedBlocks = blocks.filter((block) => String(block?.text ?? "").trim()).length;
+      spindle.log.info(`pipeline: injected messageIndex=0 blocks=${injectedBlocks}/3 promptMessages=${injected.length}`);
+      sendRunStatus("injected", { blocks: injectedBlocks, promptMessages: injected.length }, userId);
       return {
         messages: injected,
         breakdown: [{ messageIndex: 0, name: RECURSION_GUIDANCE_NAME }]
@@ -1741,6 +1749,7 @@ function tryRegisterInterceptor() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       spindle.log.error(`pipeline: failed stage=${stage} error=${message.slice(0, 200)} promptMessages unchanged=${messages.length}`);
+      sendRunStatus("failed", { stage, promptMessages: messages.length }, userId);
       return messages;
     }
   });
@@ -1757,7 +1766,7 @@ async function resolveConnectionId(userId) {
     fallback: DEFAULT_SETTINGS
   });
   if (typeof settings.connectionId === "string" && settings.connectionId) {
-    return { connectionId: settings.connectionId, saveNeeded: false };
+    return { connectionId: settings.connectionId };
   }
   const connections = await spindle.connections.list(userId);
   if (connections.length === 0) {
@@ -1766,16 +1775,113 @@ async function resolveConnectionId(userId) {
   }
   const chosen = connections.find((c) => c.is_default) ?? connections[0];
   spindle.log.info(`pipeline: connection selected id=${chosen.id} default=${chosen.is_default}`);
-  return { connectionId: chosen.id, saveNeeded: true };
+  return { connectionId: chosen.id };
 }
-async function persistConnectionId(connectionId) {
+function toConnectionOptions(connections) {
+  const options = [];
+  for (const connection of connections) {
+    const id = typeof connection?.id === "string" ? connection.id : "";
+    if (!id)
+      continue;
+    options.push({
+      id,
+      name: typeof connection.name === "string" ? connection.name : id,
+      provider: typeof connection.provider === "string" ? connection.provider : "",
+      model: typeof connection.model === "string" ? connection.model : "",
+      is_default: connection.is_default === true
+    });
+  }
+  return options;
+}
+function sendRunStatus(status, fields, userId) {
+  if (!userId)
+    return;
+  try {
+    spindle.sendToFrontend({ type: "run_status", status, ...fields }, userId);
+  } catch {}
+}
+async function sendState(userId) {
   const settings = await spindle.storage.getJson(SETTINGS_PATH, {
     fallback: DEFAULT_SETTINGS
   });
-  const merged = { ...DEFAULT_SETTINGS, ...settings, connectionId };
-  await spindle.storage.setJson(SETTINGS_PATH, merged, { indent: 2 });
-  spindle.log.info(`pipeline: persisted connectionId ${connectionId} to settings`);
+  let connections = [];
+  try {
+    connections = toConnectionOptions(await spindle.connections.list(userId));
+    spindle.log.info(`ui: connections listed count=${connections.length}`);
+  } catch {
+    spindle.log.warn("ui: connections list failed");
+  }
+  spindle.sendToFrontend({
+    type: "state",
+    enabled: settings.enabled !== false,
+    connectionId: typeof settings.connectionId === "string" ? settings.connectionId : "",
+    connections
+  }, userId);
 }
+async function writeSettingsKey(key, value) {
+  const settings = await spindle.storage.getJson(SETTINGS_PATH, {
+    fallback: DEFAULT_SETTINGS
+  });
+  const merged = { ...DEFAULT_SETTINGS, ...settings, [key]: value };
+  await spindle.storage.setJson(SETTINGS_PATH, merged, { indent: 2 });
+}
+async function handleFrontendMessage(type, payload, userId) {
+  switch (type) {
+    case "get_state":
+      await sendState(userId);
+      return;
+    case "set_enabled": {
+      const value = payload?.value;
+      if (typeof value !== "boolean")
+        throw new Error("invalid set_enabled value");
+      await writeSettingsKey("enabled", value);
+      spindle.log.info(`ui: set enabled=${value}`);
+      await sendState(userId);
+      return;
+    }
+    case "set_connection": {
+      const value = payload?.value;
+      if (typeof value !== "string")
+        throw new Error("invalid set_connection value");
+      if (value === "") {
+        await writeSettingsKey("connectionId", "");
+        spindle.log.info("ui: cleared connectionId (use default)");
+      } else {
+        const profile = await spindle.connections.get(value, userId);
+        if (!profile) {
+          spindle.log.error("ui: handler failed type=set_connection");
+          spindle.sendToFrontend({ type: "error" }, userId);
+          return;
+        }
+        await writeSettingsKey("connectionId", value);
+        spindle.log.info(`ui: set connectionId=${value}`);
+      }
+      await sendState(userId);
+      return;
+    }
+  }
+}
+var KNOWN_FRONTEND_MESSAGE_TYPES = ["get_state", "set_enabled", "set_connection"];
+spindle.onFrontendMessage((payload, userId) => {
+  if (typeof userId === "string" && userId)
+    lastKnownUserId = userId;
+  const rawType = payload?.type;
+  const type = typeof rawType === "string" ? rawType : "";
+  if (!KNOWN_FRONTEND_MESSAGE_TYPES.includes(type)) {
+    spindle.log.info("ui: unknown message type ignored");
+    return;
+  }
+  if (typeof userId !== "string" || !userId) {
+    spindle.log.warn("ui: no userId on message, skipped");
+    return;
+  }
+  handleFrontendMessage(type, payload, userId).catch(() => {
+    spindle.log.error(`ui: handler failed type=${type}`);
+    try {
+      spindle.sendToFrontend({ type: "error" }, userId);
+    } catch {}
+  });
+});
 function hasChatPermissions() {
   return spindle.permissions.has("chats") && spindle.permissions.has("chat_mutation");
 }
