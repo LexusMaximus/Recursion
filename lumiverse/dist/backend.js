@@ -86,36 +86,93 @@ async function runStep4Once(userId) {
     spindle.log.warn("step4: skipped \u2014 generation permission not granted (grant it, then restart to retry)");
     return;
   }
-  let stage = "resolve connection";
+  let connectionId;
   try {
-    const connectionId = await resolveConnectionId(userId);
-    if (!connectionId)
+    const resolved = await resolveConnectionId(userId);
+    if (!resolved)
       return;
-    stage = "generate.raw";
-    const result = await spindle.generate.raw({
-      type: "raw",
+    connectionId = resolved;
+  } catch (error) {
+    spindle.log.error(`step4: failed at resolve connection \u2014 ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+  const fixtureMessages = [{ role: "user", content: FIXTURE_PROMPT }];
+  const parseFixtureContent = (content) => {
+    try {
+      const parsed = JSON.parse(content);
+      const keys = parsed !== null && typeof parsed === "object" ? Object.keys(parsed).join(", ") || "(none)" : `non-object (${typeof parsed})`;
+      spindle.log.info(`step4: parsed JSON keys: ${keys}`);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      spindle.log.error(`step4: JSON.parse failed \u2014 content length ${content.length}, error: ${message}`);
+      return false;
+    }
+  };
+  let quietProfile = null;
+  try {
+    quietProfile = await spindle.connections.get(connectionId, userId);
+  } catch {
+    quietProfile = null;
+  }
+  const quietProvider = quietProfile?.provider || "(unknown)";
+  const quietModel = quietProfile?.model || "(unknown)";
+  let parsedSuccessfully = false;
+  try {
+    spindle.log.info(`diag: attempt variant=quiet profileId=${connectionId} provider=${quietProvider} model=${quietModel} requestModelField=none`);
+    const result = await spindle.generate.quiet({
+      type: "quiet",
       connection_id: connectionId,
-      messages: [{ role: "user", content: FIXTURE_PROMPT }],
+      messages: fixtureMessages,
       userId
     });
     const content = result?.content;
     if (typeof content !== "string") {
-      spindle.log.warn("step4: unexpected result shape \u2014 content is not a string");
-      return;
+      throw new Error("unexpected result shape \u2014 content is not a string");
     }
-    let parsed;
-    try {
-      parsed = JSON.parse(content);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      spindle.log.error(`step4: JSON.parse failed \u2014 content length ${content.length}, error: ${message}`);
-      return;
-    }
-    const keys = parsed !== null && typeof parsed === "object" ? Object.keys(parsed).join(", ") || "(none)" : `non-object (${typeof parsed})`;
-    spindle.log.info(`step4: parsed JSON keys: ${keys}`);
-    await persistConnectionId(connectionId);
+    spindle.log.info(`diag: success variant=quiet profileId=${connectionId} contentLength=${content.length}`);
+    parsedSuccessfully = parseFixtureContent(content);
   } catch (error) {
-    spindle.log.error(`step4: failed at ${stage} \u2014 ${error instanceof Error ? error.message : String(error)}`);
+    const message = error instanceof Error ? error.message : String(error);
+    spindle.log.error(`diag: error variant=quiet profileId=${connectionId} provider=${quietProvider} model=${quietModel} error=${message.slice(0, 200)}`);
+  }
+  let rawProviderForLog;
+  let rawModelForLog;
+  try {
+    const profile = await spindle.connections.get(connectionId, userId);
+    if (!profile) {
+      spindle.log.error(`diag: error variant=raw-explicit profileId=${connectionId} provider=(unknown) model=(unknown) error=connection profile not found`);
+    } else {
+      rawProviderForLog = profile.provider;
+      rawModelForLog = profile.model;
+      spindle.log.info(`diag: attempt variant=raw-explicit profileId=${connectionId} provider=${profile.provider} model=${profile.model} requestModelField=model`);
+      const rawExplicit = spindle.generate.raw;
+      const result = await rawExplicit({
+        type: "raw",
+        provider: profile.provider,
+        model: profile.model,
+        connection_id: connectionId,
+        userId,
+        messages: fixtureMessages
+      });
+      const content = result?.content;
+      if (typeof content !== "string") {
+        throw new Error("unexpected result shape \u2014 content is not a string");
+      }
+      spindle.log.info(`diag: success variant=raw-explicit profileId=${connectionId} contentLength=${content.length}`);
+      if (parseFixtureContent(content))
+        parsedSuccessfully = true;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    spindle.log.error(`diag: error variant=raw-explicit profileId=${connectionId} provider=${rawProviderForLog ?? "(unknown)"} model=${rawModelForLog ?? "(unknown)"} error=${message.slice(0, 200)}`);
+  }
+  if (parsedSuccessfully) {
+    try {
+      await persistConnectionId(connectionId);
+    } catch (error) {
+      spindle.log.error(`step4: failed at persist connectionId \u2014 ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 function hasChatPermissions() {

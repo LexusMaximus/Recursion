@@ -127,45 +127,139 @@ async function runStep4Once(userId: string): Promise<void> {
     spindle.log.warn('step4: skipped — generation permission not granted (grant it, then restart to retry)')
     return
   }
-  let stage = 'resolve connection'
+
+  let connectionId: string
   try {
-    const connectionId = await resolveConnectionId(userId)
-    if (!connectionId) return
-    // generation.md:7-20 — raw({ connection_id, messages }); direct provider call,
-    // no interceptor re-entry (generation.md:35-36).
-    stage = 'generate.raw'
-    const result: unknown = await spindle.generate.raw({
-      type: 'raw',
+    const resolved = await resolveConnectionId(userId)
+    if (!resolved) return
+    connectionId = resolved
+  } catch (error) {
+    spindle.log.error(
+      `step4: failed at resolve connection — ${error instanceof Error ? error.message : String(error)}`,
+    )
+    return
+  }
+
+  const fixtureMessages = [{ role: 'user' as const, content: FIXTURE_PROMPT }]
+  const parseFixtureContent = (content: string): boolean => {
+    try {
+      const parsed: unknown = JSON.parse(content)
+      const keys =
+        parsed !== null && typeof parsed === 'object'
+          ? Object.keys(parsed).join(', ') || '(none)'
+          : `non-object (${typeof parsed})`
+      spindle.log.info(`step4: parsed JSON keys: ${keys}`)
+      return true
+    } catch (error) {
+      // Manager: on parse failure log ONLY content length + error message.
+      const message = error instanceof Error ? error.message : String(error)
+      spindle.log.error(
+        `step4: JSON.parse failed — content length ${content.length}, error: ${message}`,
+      )
+      return false
+    }
+  }
+
+  // Variant 1: quiet uses the selected connection. The profile lookup is only
+  // for diagnostic labels; a lookup failure must not suppress the quiet call.
+  // generation.md:22-33, 753-766; commands.md:177-183 (type: 'quiet').
+  let quietProfile: { provider: string; model: string } | null = null
+  try {
+    quietProfile = await spindle.connections.get(connectionId, userId) // generation.md:770-779
+  } catch {
+    quietProfile = null
+  }
+  const quietProvider = quietProfile?.provider || '(unknown)'
+  const quietModel = quietProfile?.model || '(unknown)'
+  let parsedSuccessfully = false
+
+  try {
+    spindle.log.info(
+      `diag: attempt variant=quiet profileId=${connectionId} provider=${quietProvider} model=${quietModel} requestModelField=none`,
+    )
+    const result: unknown = await spindle.generate.quiet({
+      type: 'quiet',
       connection_id: connectionId,
-      messages: [{ role: 'user', content: FIXTURE_PROMPT }],
-      // Operator-scoped extension: raw resolves connection profiles and
-      // generation context per user. types-only (api.d.ts:483-488); absent
-      // from generation.md:53-62.
+      messages: fixtureMessages,
+      // Operator-scoped extension: types-only (api.d.ts:483-488).
       userId,
     })
     const content = (result as { content?: unknown } | null)?.content
     if (typeof content !== 'string') {
-      spindle.log.warn('step4: unexpected result shape — content is not a string')
-      return
+      throw new Error('unexpected result shape — content is not a string')
     }
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(content)
-    } catch (error) {
-      // Manager: on parse failure log ONLY content length + error message.
-      const message = error instanceof Error ? error.message : String(error)
-      spindle.log.error(`step4: JSON.parse failed — content length ${content.length}, error: ${message}`)
-      return
-    }
-    const keys =
-      parsed !== null && typeof parsed === 'object'
-        ? Object.keys(parsed).join(', ') || '(none)'
-        : `non-object (${typeof parsed})`
-    spindle.log.info(`step4: parsed JSON keys: ${keys}`)
-    await persistConnectionId(connectionId)
+    spindle.log.info(
+      `diag: success variant=quiet profileId=${connectionId} contentLength=${content.length}`,
+    )
+    parsedSuccessfully = parseFixtureContent(content)
   } catch (error) {
-    // Thrown error message logged as-is (manager). stage names the failing call.
-    spindle.log.error(`step4: failed at ${stage} — ${error instanceof Error ? error.message : String(error)}`)
+    const message = error instanceof Error ? error.message : String(error)
+    spindle.log.error(
+      `diag: error variant=quiet profileId=${connectionId} provider=${quietProvider} model=${quietModel} error=${message.slice(0, 200)}`,
+    )
+  }
+
+  // Variant 2: raw with explicit top-level provider/model. The prose and
+  // examples document those fields (generation.md:7-18, 286-293), while the
+  // formal DTO table and installed types omit them (generation.md:53-62;
+  // api.d.ts:454-520). Cast follows the LumiWorld pattern
+  // (reference/LumiWorld/src/backend.ts:982-993).
+  let rawProviderForLog: string | undefined
+  let rawModelForLog: string | undefined
+  try {
+    const profile = await spindle.connections.get(connectionId, userId) // generation.md:770-779
+    if (!profile) {
+      spindle.log.error(
+        `diag: error variant=raw-explicit profileId=${connectionId} provider=(unknown) model=(unknown) error=connection profile not found`,
+      )
+    } else {
+      rawProviderForLog = profile.provider
+      rawModelForLog = profile.model
+      spindle.log.info(
+        `diag: attempt variant=raw-explicit profileId=${connectionId} provider=${profile.provider} model=${profile.model} requestModelField=model`,
+      )
+      const rawExplicit = spindle.generate.raw as unknown as (
+        input: {
+          type: 'raw'
+          provider: string
+          model: string
+          connection_id: string
+          userId: string
+          messages: Array<{ role: 'user'; content: string }>
+        },
+      ) => Promise<unknown>
+      const result: unknown = await rawExplicit({
+        type: 'raw',
+        provider: profile.provider,
+        model: profile.model,
+        connection_id: connectionId,
+        userId,
+        messages: fixtureMessages,
+      })
+      const content = (result as { content?: unknown } | null)?.content
+      if (typeof content !== 'string') {
+        throw new Error('unexpected result shape — content is not a string')
+      }
+      spindle.log.info(
+        `diag: success variant=raw-explicit profileId=${connectionId} contentLength=${content.length}`,
+      )
+      if (parseFixtureContent(content)) parsedSuccessfully = true
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    spindle.log.error(
+      `diag: error variant=raw-explicit profileId=${connectionId} provider=${rawProviderForLog ?? '(unknown)'} model=${rawModelForLog ?? '(unknown)'} error=${message.slice(0, 200)}`,
+    )
+  }
+
+  if (parsedSuccessfully) {
+    try {
+      await persistConnectionId(connectionId)
+    } catch (error) {
+      spindle.log.error(
+        `step4: failed at persist connectionId — ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
   }
 }
 
