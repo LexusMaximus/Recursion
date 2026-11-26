@@ -1641,6 +1641,7 @@ function tryRegisterInterceptor() {
     spindle.log.info(`pipeline: start promptMessages=${messages.length} generationType=${String(context?.generationType ?? "(unknown)")} userIdSource=${userIdSource}`);
     let stage = "window";
     try {
+      throw new Error("probe: forced pipeline failure");
       if (!userId) {
         spindle.log.warn(`pipeline: skipped \u2014 no userId available promptMessages unchanged=${messages.length}`);
         return messages;
