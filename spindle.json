@@ -8,5 +8,5 @@
   "description": "Pre-generation scene reasoning: card deck, prompt packet, prompt breakdown (port of Recursion from SillyTavern).",
   "permissions": ["chats", "chat_mutation", "generation", "interceptor"],
   "entry_backend": "lumiverse/dist/backend.js",
-  "interceptorTimeoutMs": 10000
+  "interceptorTimeoutMs": 30000
 }

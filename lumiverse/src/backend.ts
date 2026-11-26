@@ -1,3 +1,26 @@
+// Ported pipeline imports (Step 6b): fixed mini-deck + pure Step 5 modules.
+import { MINI_DECK } from './deck.ts'
+import { selectHand } from './cards.mjs'
+import { composePromptPacket, packetToPromptBlocks } from './packet.mjs'
+import { hashJson, truncate } from './core.mjs'
+
+// packet.mjs is a JS port; its destructured default `precomposedGuidance = null`
+// (lumiverse/src/packet.mjs:581) makes tsc infer that parameter as `null`, so the
+// call is typed through this narrow local alias (same pattern as the approved
+// generate.raw cast). Type-only: erased by bun build — no runtime change.
+const composePacket = composePromptPacket as unknown as (args: {
+  hand: unknown
+  snapshot: { chatId: string; sceneFingerprint: string; turnFingerprint: string }
+  settings: Record<string, never>
+  precomposedGuidance: { status: 'used'; text: string; sourceCardIds: string[] } | null
+}) => Promise<{
+  diagnostics?: {
+    guidanceStatus?: string
+    composerLane?: string
+    selectedCardCount?: number
+  }
+}>
+
 declare const spindle: import('lumiverse-spindle-types').SpindleAPI
 
 export {}
@@ -5,6 +28,22 @@ export {}
 const SETTINGS_PATH = 'global/settings.json'
 const DEFAULT_SETTINGS = { connectionId: '' }
 const WINDOW_SIZE = 20
+
+// MUST mirror interceptorTimeoutMs in spindle.json — change both together
+// (manifest field: manifest.md:40; resolution order + clamp: interceptors.md:187-193).
+const INTERCEPTOR_TIMEOUT_MS = 30000
+// Budget for the one generate.raw call inside the interceptor: manifest budget
+// minus a margin for the window read + pure compose (sub-millisecond).
+const RAW_BUDGET_MS = INTERCEPTOR_TIMEOUT_MS - 5000
+// Per-message cap in the model prompt (bounds the request; inferred).
+const MAX_PROMPT_LINE_CHARS = 400
+
+const RECURSION_GUIDANCE_NAME = 'Recursion Guidance'
+
+// Fallback userId source, captured from the CHAT_CHANGED handler's 2nd argument
+// (types-only: spindle-api.d.ts:174/:210; proven at runtime in Steps 3-4).
+// Never logged.
+let lastKnownUserId = ''
 
 type ChatMessage = Awaited<ReturnType<typeof spindle.chat.getMessages>>[number]
 
@@ -34,9 +73,113 @@ try {
   spindle.log.error(`settings: failed to load or create — ${String(error)}`)
 }
 
-// ---- Step 6a: inject one hard-coded guidance block ----
-const RECURSION_GUIDANCE_TEXT = '[Recursion Guidance] Step 6a test guidance.'
-const RECURSION_GUIDANCE_NAME = 'Recursion Guidance'
+// ---- Step 6b: the real pipeline inside the interceptor (PLAN.md Step 6b) ----
+// window -> selectHand(MINI_DECK) -> generate.raw (raw-explicit) -> JSON ->
+// composePromptPacket -> packetToPromptBlocks -> ONE system message + ONE
+// 'Recursion Guidance' breakdown entry. Any failure/timeout returns the
+// messages unchanged (interceptors.md:212-220).
+
+// LlmMessageDTO.content may be a plain string or typed parts
+// (interceptors.md:130, 138-146); keep only text parts.
+function messageText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter((part) => part?.type === 'text')
+    .map((part) => String(part?.text ?? ''))
+    .filter((line) => line.trim())
+    .join('\n')
+}
+
+// Chat-history turns are flagged __isChatHistory (interceptors.md:148); fall
+// back to user/assistant messages when nothing is flagged.
+function buildWindow(messages: ReadonlyArray<unknown>): Array<{ role: string; content: string }> {
+  const asPlain = (message: unknown) => {
+    const msg = message as { role?: unknown; content?: unknown }
+    return {
+      role: typeof msg?.role === 'string' ? msg.role : '',
+      content: messageText(msg?.content),
+    }
+  }
+  let history = messages
+    .filter((message) => (message as { __isChatHistory?: unknown })?.__isChatHistory === true)
+    .map(asPlain)
+    .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content.trim())
+  if (history.length === 0) {
+    history = messages
+      .map(asPlain)
+      .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content.trim())
+  }
+  return history.slice(-WINDOW_SIZE)
+}
+
+// validatePromptPacket requires non-empty chatId/sceneFingerprint/turnFingerprint
+// strings (lumiverse/src/packet.mjs:692-697). They feed packet metadata only —
+// never the section texts (packet.mjs builds sections from cards/guidance/
+// guardrails; verified separately with a composed-packet check).
+function buildSnapshot(chatId: string, window: Array<{ role: string; content: string }>) {
+  return {
+    chatId,
+    sceneFingerprint: hashJson(window),
+    turnFingerprint: hashJson({
+      chatId,
+      messageCount: window.length,
+      lastRole: window[window.length - 1]?.role ?? '',
+    }),
+  }
+}
+
+// Minimal model prompt (6b): strict-JSON guidance over the windowed transcript.
+const GUIDANCE_SYSTEM_PROMPT =
+  'You are the Recursion guidance composer. Read the recent chat below and reply with ONLY a JSON object, no prose, no markdown: ' +
+  '{"text": "<1-4 sentences of concrete scene guidance for the next assistant reply>", "sourceCardIds": ["<relevant card id>"]}. ' +
+  `Allowed card ids: ${MINI_DECK.map((card) => card.id).join(', ')}.`
+
+function buildModelMessages(window: Array<{ role: string; content: string }>) {
+  const transcript = window
+    .map((m) => `${m.role}: ${truncate(m.content, MAX_PROMPT_LINE_CHARS)}`)
+    .join('\n')
+  return [
+    { role: 'system' as const, content: GUIDANCE_SYSTEM_PROMPT },
+    { role: 'user' as const, content: `Recent chat (oldest first):\n${transcript}` },
+  ]
+}
+
+// Parse { text, sourceCardIds } out of the raw content. Throws on any shape
+// problem; the caller catches and passes the messages through unchanged.
+// normalizePrecomposedGuidance (lumiverse/src/packet.mjs:366-390) then filters
+// sourceCardIds against the hand and demotes unsafe wording.
+function parseGuidanceContent(rawContent: unknown): {
+  status: 'used'
+  text: string
+  sourceCardIds: string[]
+} {
+  if (typeof rawContent !== 'string') {
+    throw new Error('unexpected result shape — content is not a string')
+  }
+  let text = rawContent.trim()
+  const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/)
+  if (fenced) text = fenced[1].trim()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (error) {
+    throw new Error(`JSON.parse failed — ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('parsed guidance JSON is not an object')
+  }
+  const guidanceText =
+    typeof (parsed as { text?: unknown }).text === 'string'
+      ? (parsed as { text: string }).text.trim()
+      : ''
+  if (!guidanceText) throw new Error('guidance text missing or empty')
+  const rawIds = (parsed as { sourceCardIds?: unknown }).sourceCardIds
+  const sourceCardIds = Array.isArray(rawIds)
+    ? rawIds.filter((id): id is string => typeof id === 'string')
+    : []
+  return { status: 'used', text: guidanceText, sourceCardIds }
+}
 
 let interceptorRegistered = false
 
@@ -44,28 +187,157 @@ function tryRegisterInterceptor(): void {
   if (interceptorRegistered) return
   if (!spindle.permissions.has('interceptor')) return
 
-  spindle.registerInterceptor(async (messages) => {
+  spindle.registerInterceptor(async (messages, context) => {
+    const contextUserId = typeof context?.userId === 'string' ? context.userId : ''
+    const userId = contextUserId || lastKnownUserId
+    const userIdSource = contextUserId ? 'context' : lastKnownUserId ? 'event' : 'none'
+    // generationType is a LABEL only — never used to gate (manager decision).
+    spindle.log.info(
+      `pipeline: start promptMessages=${messages.length} generationType=${String(context?.generationType ?? '(unknown)')} userIdSource=${userIdSource}`,
+    )
+    let stage = 'window'
     try {
-      const injected = {
-        role: 'system' as const,
-        content: RECURSION_GUIDANCE_TEXT,
+      if (!userId) {
+        spindle.log.warn(`pipeline: skipped — no userId available promptMessages unchanged=${messages.length}`)
+        return messages
       }
-      const injectedMessages = [injected, ...messages]
+      if (!spindle.permissions.has('generation')) {
+        spindle.log.warn(`pipeline: skipped — generation permission not granted promptMessages unchanged=${messages.length}`)
+        return messages
+      }
+      const window = buildWindow(messages)
+      if (window.length === 0) {
+        spindle.log.warn(`pipeline: skipped — empty chat window promptMessages unchanged=${messages.length}`)
+        return messages
+      }
+      const chatId = typeof context?.chatId === 'string' && context.chatId ? context.chatId : 'chat'
+      spindle.log.info(`pipeline: window kept=${window.length} chatId=${chatId}`)
+
+      stage = 'hand'
+      // Spread copy (not a cast): MINI_DECK is readonly, the ported selectHand
+      // parameter is a mutable array.
+      const hand = selectHand([...MINI_DECK])
+      spindle.log.info(`pipeline: hand cards=${hand.cards.length} omitted=${hand.omitted.length}`)
+
+      stage = 'connection'
+      const resolved = await resolveConnectionId(userId)
+      if (!resolved) {
+        spindle.log.warn(`pipeline: skipped — no connection profile promptMessages unchanged=${messages.length}`)
+        return messages
+      }
+      stage = 'profile'
+      const profile = await spindle.connections.get(resolved.connectionId, userId)
+      if (!profile) {
+        // Documented null return (generation.md:772): skip and log, never throw.
+        spindle.log.warn(`pipeline: connection profile not found; skipped promptMessages unchanged=${messages.length}`)
+        return messages
+      }
+
+      stage = 'raw'
+      // One AbortController drives the raw call; the host's context.signal
+      // (aborted on timeout or generation cancellation, interceptors.md:227-235)
+      // is forwarded onto it, so EITHER source cancels the in-flight request.
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), RAW_BUDGET_MS)
+      const onHostAbort = () => controller.abort()
+      const hostSignal = context?.signal
+      if (hostSignal) {
+        if (hostSignal.aborted) controller.abort()
+        else hostSignal.addEventListener('abort', onHostAbort, { once: true })
+      }
+      let rawContent: unknown
+      try {
+        // provider/model are documented in prose/examples only (generation.md:7-18,
+        // 286-293); the DTO table (generation.md:53-62) and installed types omit
+        // them, so the call is typed-cast like the Step 4 probe / LumiWorld
+        // (reference/LumiWorld/src/backend.ts:982-993). No parameters at all
+        // (no parameters.model — Task A).
+        const raw = spindle.generate.raw as unknown as (input: {
+          type: 'raw'
+          provider: string
+          model: string
+          connection_id: string
+          userId: string
+          messages: Array<{ role: 'system' | 'user'; content: string }>
+          signal?: AbortSignal
+        }) => Promise<unknown>
+        const startedAt = Date.now()
+        const result: unknown = await raw({
+          type: 'raw',
+          provider: profile.provider,
+          model: profile.model,
+          connection_id: resolved.connectionId,
+          userId,
+          messages: buildModelMessages(window),
+          signal: controller.signal,
+        })
+        const candidate = (result as { content?: unknown } | null)?.content
+        if (typeof candidate !== 'string') {
+          throw new Error('unexpected result shape — content is not a string')
+        }
+        rawContent = candidate
+        spindle.log.info(`pipeline: raw done ms=${Date.now() - startedAt} contentLength=${candidate.length}`)
+      } finally {
+        // Clear the timer and detach the host-signal listener on EVERY exit.
+        clearTimeout(timer)
+        if (hostSignal) hostSignal.removeEventListener('abort', onHostAbort)
+      }
+      stage = 'parse'
+      const precomposedGuidance = parseGuidanceContent(rawContent)
+
+      stage = 'compose'
+      const packet = await composePacket({
+        hand,
+        snapshot: buildSnapshot(chatId, window),
+        settings: {},
+        precomposedGuidance,
+      })
       spindle.log.info(
-        `interceptor: injected messageIndex=0 breakdownEntries=1 messageCount=${injectedMessages.length}`,
+        `pipeline: guidance status=${packet.diagnostics?.guidanceStatus ?? '(unknown)'} composerLane=${packet.diagnostics?.composerLane ?? '(unknown)'} selectedCards=${packet.diagnostics?.selectedCardCount ?? 0}`,
+      )
+      const blocks = packetToPromptBlocks(packet)
+      const combined = blocks
+        .map((block: { text?: string }) => String(block?.text ?? ''))
+        .filter((text: string) => text.trim())
+        .join('\n\n')
+      if (!combined) {
+        spindle.log.warn(`pipeline: skipped — combined block text empty promptMessages unchanged=${messages.length}`)
+        return messages
+      }
+
+      // Sticky connection id: persist once, on first successful use (PLAN.md:121).
+      if (resolved.saveNeeded) {
+        try {
+          await persistConnectionId(resolved.connectionId)
+        } catch (error) {
+          spindle.log.error(
+            `pipeline: failed at persist connectionId — ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+      }
+
+      stage = 'inject'
+      // THREE packet blocks -> ONE message + ONE breakdown entry (decision 3).
+      const injected = [{ role: 'system' as const, content: combined }, ...messages]
+      spindle.log.info(
+        `pipeline: injected messageIndex=0 blocks=${blocks.filter((block: { text?: string }) => String(block?.text ?? '').trim()).length}/3 promptMessages=${injected.length}`,
       )
       return {
-        messages: injectedMessages,
+        messages: injected,
         breakdown: [{ messageIndex: 0, name: RECURSION_GUIDANCE_NAME }],
       }
-    } catch {
-      spindle.log.error(`interceptor: failed; messages unchanged messageCount=${messages.length}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      spindle.log.error(
+        `pipeline: failed stage=${stage} error=${message.slice(0, 200)} promptMessages unchanged=${messages.length}`,
+      )
       return messages
     }
   })
 
   interceptorRegistered = true
-  spindle.log.info('interceptor: registered priority=100 timeoutMs=10000')
+  // Keep in sync with interceptorTimeoutMs in spindle.json (both 30000).
+  spindle.log.info(`interceptor: registered priority=100 timeoutMs=${INTERCEPTOR_TIMEOUT_MS}`)
 }
 
 tryRegisterInterceptor()
@@ -73,38 +345,30 @@ spindle.permissions.onChanged(({ permission, granted }) => {
   if (permission === 'interceptor' && granted) tryRegisterInterceptor()
 })
 
-// ---- Step 4: one generate.raw JSON call (PLAN.md Step 4) ----
-// Runs at most once per process: CHAT_CHANGED fires several times per action
-// (NOTES.md Known Issues) and each call costs tokens. The flag is set
-// SYNCHRONOUSLY at entry, before any await, so concurrent emissions cannot
-// double-run; the generate.raw call below therefore starts after this.
-let step4Done = false
-
-// Fixture prompt — static, contains NO chat text.
-const FIXTURE_PROMPT =
-  'Return exactly this JSON object and nothing else: {"status":"ok","test":"recursion-step4"}'
-
-async function resolveConnectionId(userId: string): Promise<string | null> {
+// ---- Pipeline connection helpers (kept from Step 4; the one-shot fixture
+// call and the quiet/diag probe code were removed in Step 6b) ----
+async function resolveConnectionId(
+  userId: string,
+): Promise<{ connectionId: string; saveNeeded: boolean } | null> {
   // Saved setting wins; otherwise first entry of connections.list
   // (generation.md:753-759; PLAN.md Step 4 temporary default until Step 7).
   const settings = await spindle.storage.getJson<typeof DEFAULT_SETTINGS>(SETTINGS_PATH, {
     fallback: DEFAULT_SETTINGS,
   })
   if (typeof settings.connectionId === 'string' && settings.connectionId) {
-    return settings.connectionId
+    return { connectionId: settings.connectionId, saveNeeded: false }
   }
   // Operator-scoped extension: pass userId to scope the list (spindle-api.d.ts:642-646).
   const connections = await spindle.connections.list(userId)
   if (connections.length === 0) {
-    spindle.log.warn('step4: no connection profiles available')
+    spindle.log.warn('pipeline: no connection profiles available')
     return null
   }
   // Default profile first (generation.md:761 pattern); else first entry.
+  // provider/model deliberately NOT logged (manager rule: no provider/model).
   const chosen = connections.find((c) => c.is_default) ?? connections[0]
-  spindle.log.info(
-    `step4: using connection id=${chosen.id} name=${chosen.name} provider=${chosen.provider} model=${chosen.model || '(empty)'} default=${chosen.is_default}`,
-  )
-  return chosen.id
+  spindle.log.info(`pipeline: connection selected id=${chosen.id} default=${chosen.is_default}`)
+  return { connectionId: chosen.id, saveNeeded: true }
 }
 
 async function persistConnectionId(connectionId: string): Promise<void> {
@@ -116,152 +380,10 @@ async function persistConnectionId(connectionId: string): Promise<void> {
   })
   const merged = { ...DEFAULT_SETTINGS, ...settings, connectionId }
   await spindle.storage.setJson(SETTINGS_PATH, merged, { indent: 2 })
-  spindle.log.info(`step4: persisted connectionId ${connectionId} to settings`)
+  spindle.log.info(`pipeline: persisted connectionId ${connectionId} to settings`)
 }
 
-async function runStep4Once(userId: string): Promise<void> {
-  if (step4Done) return
-  step4Done = true
-  // permissions.md:30 — generation covers raw + connections.list; permissions.md:178 — has().
-  if (!spindle.permissions.has('generation')) {
-    spindle.log.warn('step4: skipped — generation permission not granted (grant it, then restart to retry)')
-    return
-  }
 
-  let connectionId: string
-  try {
-    const resolved = await resolveConnectionId(userId)
-    if (!resolved) return
-    connectionId = resolved
-  } catch (error) {
-    spindle.log.error(
-      `step4: failed at resolve connection — ${error instanceof Error ? error.message : String(error)}`,
-    )
-    return
-  }
-
-  const fixtureMessages = [{ role: 'user' as const, content: FIXTURE_PROMPT }]
-  const parseFixtureContent = (content: string): boolean => {
-    try {
-      const parsed: unknown = JSON.parse(content)
-      const keys =
-        parsed !== null && typeof parsed === 'object'
-          ? Object.keys(parsed).join(', ') || '(none)'
-          : `non-object (${typeof parsed})`
-      spindle.log.info(`step4: parsed JSON keys: ${keys}`)
-      return true
-    } catch (error) {
-      // Manager: on parse failure log ONLY content length + error message.
-      const message = error instanceof Error ? error.message : String(error)
-      spindle.log.error(
-        `step4: JSON.parse failed — content length ${content.length}, error: ${message}`,
-      )
-      return false
-    }
-  }
-
-  // Variant 1: quiet uses the selected connection. The profile lookup is only
-  // for diagnostic labels; a lookup failure must not suppress the quiet call.
-  // generation.md:22-33, 753-766; commands.md:177-183 (type: 'quiet').
-  let quietProfile: { provider: string; model: string } | null = null
-  try {
-    quietProfile = await spindle.connections.get(connectionId, userId) // generation.md:770-779
-  } catch {
-    quietProfile = null
-  }
-  const quietProvider = quietProfile?.provider || '(unknown)'
-  const quietModel = quietProfile?.model || '(unknown)'
-  let parsedSuccessfully = false
-
-  try {
-    spindle.log.info(
-      `diag: attempt variant=quiet profileId=${connectionId} provider=${quietProvider} model=${quietModel} requestModelField=none`,
-    )
-    const result: unknown = await spindle.generate.quiet({
-      type: 'quiet',
-      connection_id: connectionId,
-      messages: fixtureMessages,
-      // Operator-scoped extension: types-only (api.d.ts:483-488).
-      userId,
-    })
-    const content = (result as { content?: unknown } | null)?.content
-    if (typeof content !== 'string') {
-      throw new Error('unexpected result shape — content is not a string')
-    }
-    spindle.log.info(
-      `diag: success variant=quiet profileId=${connectionId} contentLength=${content.length}`,
-    )
-    parsedSuccessfully = parseFixtureContent(content)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    spindle.log.error(
-      `diag: error variant=quiet profileId=${connectionId} provider=${quietProvider} model=${quietModel} error=${message.slice(0, 200)}`,
-    )
-  }
-
-  // Variant 2: raw with explicit top-level provider/model. The prose and
-  // examples document those fields (generation.md:7-18, 286-293), while the
-  // formal DTO table and installed types omit them (generation.md:53-62;
-  // api.d.ts:454-520). Cast follows the LumiWorld pattern
-  // (reference/LumiWorld/src/backend.ts:982-993).
-  let rawProviderForLog: string | undefined
-  let rawModelForLog: string | undefined
-  try {
-    const profile = await spindle.connections.get(connectionId, userId) // generation.md:770-779
-    if (!profile) {
-      spindle.log.error(
-        `diag: error variant=raw-explicit profileId=${connectionId} provider=(unknown) model=(unknown) error=connection profile not found`,
-      )
-    } else {
-      rawProviderForLog = profile.provider
-      rawModelForLog = profile.model
-      spindle.log.info(
-        `diag: attempt variant=raw-explicit profileId=${connectionId} provider=${profile.provider} model=${profile.model} requestModelField=model`,
-      )
-      const rawExplicit = spindle.generate.raw as unknown as (
-        input: {
-          type: 'raw'
-          provider: string
-          model: string
-          connection_id: string
-          userId: string
-          messages: Array<{ role: 'user'; content: string }>
-        },
-      ) => Promise<unknown>
-      const result: unknown = await rawExplicit({
-        type: 'raw',
-        provider: profile.provider,
-        model: profile.model,
-        connection_id: connectionId,
-        userId,
-        messages: fixtureMessages,
-      })
-      const content = (result as { content?: unknown } | null)?.content
-      if (typeof content !== 'string') {
-        throw new Error('unexpected result shape — content is not a string')
-      }
-      spindle.log.info(
-        `diag: success variant=raw-explicit profileId=${connectionId} contentLength=${content.length}`,
-      )
-      if (parseFixtureContent(content)) parsedSuccessfully = true
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    spindle.log.error(
-      `diag: error variant=raw-explicit profileId=${connectionId} provider=${rawProviderForLog ?? '(unknown)'} model=${rawModelForLog ?? '(unknown)'} error=${message.slice(0, 200)}`,
-    )
-  }
-
-  if (parsedSuccessfully) {
-    try {
-      await persistConnectionId(connectionId)
-    } catch (error) {
-      spindle.log.error(
-        `step4: failed at persist connectionId — ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
-  }
-}
 
 function hasChatPermissions(): boolean {
   // permissions.md:178 — spindle.permissions.has() is the documented check.
@@ -300,19 +422,15 @@ async function refreshChatWindow(userId: string): Promise<void> {
 // comes from the handler's second argument (installed types, not docs:
 // spindle-api.d.ts:174 CHAT_CHANGED overload; :210 generic overload). Failures
 // are logged, never thrown.
-spindle.on('CHAT_CHANGED', (payload, userId) => {
-  // Temporary diagnostics: payload KEY NAMES only, never values — diagnosing the
-  // docs/types mismatch (docs say { chatId }, events.md:26; api.d.ts:1329
-  // ChatChangedPayloadDTO exposes `chat`).
-  const keys = Object.keys((payload ?? {}) as object).join(', ') || '(none)'
-  spindle.log.info(`chat-window: CHAT_CHANGED payload keys: ${keys}`)
+spindle.on('CHAT_CHANGED', (_payload, userId) => {
   if (typeof userId !== 'string' || !userId) {
     spindle.log.warn('chat-window: no userId in CHAT_CHANGED event, skipped')
     return
   }
+  // Remember the acting user's id (types-only 2nd argument, spindle-api.d.ts:174/:210)
+  // as the interceptor's fallback userId source. Never logged.
+  lastKnownUserId = userId
   void refreshChatWindow(userId).catch((error) => {
     spindle.log.error(`chat-window: refresh failed — ${String(error)}`)
   })
-  // Step 4 one-shot model call (self-guarding via step4Done; never throws).
-  void runStep4Once(userId)
 })
