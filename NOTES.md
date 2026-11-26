@@ -59,56 +59,84 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - [x] 5. PLAN.md Step 5 — PURE ports + assert tests (5a packet composition, 5b hand
       selection, 5c card validation; tags step-5a/5b/5c)
 - [x] 6a. PLAN.md Step 6a — interceptor injects a hard-coded block (PASSED; tagged step-6a)
+- [x] 6b. PLAN.md Step 6b — real pipeline inside the interceptor (PASSED; tag step-6b on 8ea0085)
 
 ## Done Log
 (Newest first: step / what changed / files / test result / tag)
+- 6b / real pipeline inside the interceptor: windowed chat -> selectHand -> composePromptPacket -> generate.raw (top-level provider/model from connections.get + connection_id + userId, decision 21) -> 3 prompt blocks joined into ONE system message prepended at index 0; ONE Prompt Breakdown entry "Recursion Guidance" first, sections guidance / card evidence / guardrails; failure = pass-through (loop guard: raw calls never re-enter the interceptor chain, interceptors.md:179-181). Removed: the Step 4 fixture (runStep4Once, quiet variant, diag: logs) and the CHAT_CHANGED payload-keys log; 4th import line approved: hashJson + truncate (core.mjs). context.userId types-only (api.d.ts:141) but CONFIRMED PRESENT at runtime (userIdSource=context); CHAT_CHANGED 2nd-arg userId stays as fallback. spindle.json interceptorTimeoutMs 10000 -> 30000 (internal raw budget 25 s); tsconfig +allowImportingTsExtensions +noEmit (tsc check-only, bun build makes dist).
+  TEMP failure-path probe commit a014e7a (forced throw at the top of the interceptor handler) committed untagged, tested, reverted — repo content equals 8ea0085 / lumiverse/src/backend.ts, lumiverse/tsconfig.json, lumiverse/dist/backend.js, spindle.json / dist/backend.js 74860 bytes, SHA256 F5E5DEC7C2E4B2429985B5B16F2297A17B6B445686D5E0723D0B87D92AA02885 (matched an isolated build) / VERIFIED PASSED on OpenRouter nvidia/nemotron-3.5-super-vl:free.
+  Happy path: pipeline lines in order (start, window kept=10, hand cards=5 omitted=0, raw done ms=14858 contentLength=466, guidance status=used, injected blocks=3/3 promptMessages=15), no loop; Prompt Breakdown shows ONE "Recursion Guidance" entry first with the three sections. Failure path: "pipeline: failed stage=window error=probe: forced pipeline failure promptMessages unchanged=14", no Recursion entry, normal reply / tag step-6b (commit 8ea0085; the tag is on that commit, not HEAD)
 - 6a / interceptor injects hard-coded "Recursion Guidance" block; permissions are now the old three plus interceptor / spindle.json, lumiverse/src/backend.ts, lumiverse/dist/backend.js / VERIFIED PASSED on OpenRouter: logs "interceptor: registered priority=100 timeoutMs=10000" and "interceptor: injected messageIndex=0 breakdownEntries=1 messageCount=13"; Prompt Breakdown showed "[1] SYSTEM" with "[Recursion Guidance] Step 6a test guidance." / tag step-6a (commit 3992b807941ba6f97f8ec026f51e2df2955d2034; local+remote verified)
-- 5 / PURE ports + assert tests, one commit per sub-step: 5a packet composition (lumiverse/src/packet.mjs), 5b hand selection (lumiverse/src/cards.mjs), 5c card validation; shared dependency ports + fixed mini-deck (lumiverse/src/deck.ts). Facts: composeGuidanceForCards keeps source line 747 (its closing brace); cleanProviderPromptText is exported by deviation (src/cards.mjs:416 -> export at lumiverse/src/cards.mjs:760) /
-  lumiverse/src/{card-selection,cards,core,deck.ts,instruction-safety,packet,safe-values,settings,settings-policy,story-form}.mjs, lumiverse/tests/{helpers,packet,cards,card-validation}.mjs, lumiverse/tsconfig.json / assert tests PASSED (bun lumiverse/tests/{packet,cards,card-validation}.mjs) / tags step-5a 154dacd, step-5b 8f9611a, step-5c 7fcb90f (no step-5 tag; notes commit is untagged)
+- 5 / PURE ports + assert tests, one commit per sub-step: 5a packet composition (lumiverse/src/packet.mjs), 5b hand selection (lumiverse/src/cards.mjs), 5c card validation; shared dependency ports + fixed mini-deck (lumiverse/src/deck.ts). Facts: composeGuidanceForCards keeps source line 747 (its closing brace); cleanProviderPromptText is exported by deviation (src/cards.mjs:416 -> export at lumiverse/src/cards.mjs:760) / lumiverse/src/{card-selection,cards,core,deck.ts,instruction-safety,packet,safe-values,settings,settings-policy,story-form}.mjs, lumiverse/tests/{helpers,packet,cards,card-validation}.mjs, lumiverse/tsconfig.json / assert tests PASSED (bun lumiverse/tests/{packet,cards,card-validation}.mjs) / tags step-5a 154dacd, step-5b 8f9611a, step-5c 7fcb90f (no step-5 tag; notes commit is untagged)
 - 4 / one generate.raw JSON call on fixed connection; JSON keys parsed; connectionId persisted to global/settings.json (commits 4d7b9be raw call, 2a93bfb userId in request, 239ee4d default profile + log) / lumiverse/src/backend.ts, lumiverse/dist/backend.js, spindle.json / install+restart test PASSED (user log: parsed keys status, test; persisted connectionId) / step-4 (tag on 239ee4d, applied after notes commit)
 - 3 / bounded chat window: CHAT_CHANGED handler reads active chat via getActive(userId) + getMessages; userId taken from event handler's 2nd argument (fix commit 4aa1ca7) / lumiverse/src/backend.ts, lumiverse/dist/backend.js, spindle.json / install+restart test PASSED (confirmed by me) / step-3 (tagged on 4aa1ca7)
 - 2 / settings stub: one global settings file via spindle.storage (operator-scoped — no userId; userStorage was rejected at test), fix commit f6227b3 / lumiverse/src/backend.ts, lumiverse/dist/backend.js, PLAN.md / install+restart test PASSED (confirmed by me) / step-2
 - 1 / scaffold: root spindle.json + lumiverse/ backend (bun + tsc, dist committed) / spindle.json, lumiverse/{package.json,tsconfig.json,src/backend.ts,dist/backend.js,bun.lock}, .gitignore / build + install test PASSED (confirmed by me) / step-1
-- 0d / mapping + PLAN steps rewritten per decisions (in-interceptor pipeline; root spindle.json; one combined block) / docs/port/MAPPING.md, PLAN.md / confirmed by me / step-0d
-- 0c / LumiWorld patterns analysis / docs/port/LUMIWORLD_PATTERNS.md / confirmed by me / step-0c
-- 0b / Lumiverse capabilities analysis / docs/port/LUMIVERSE_CAPABILITIES.md / confirmed by me / step-0b
-- 0a / ST touchpoints analysis / docs/port/ST_TOUCHPOINTS.md / confirmed by me / step-0a
+- 0a-0d / analyses confirmed: 0a ST touchpoints (docs/port/ST_TOUCHPOINTS.md), 0b Lumiverse capabilities (docs/port/LUMIVERSE_CAPABILITIES.md), 0c LumiWorld patterns (docs/port/LUMIWORLD_PATTERNS.md), 0d mapping + PLAN steps rewritten per decisions (in-interceptor pipeline; root spindle.json; one combined block) (docs/port/MAPPING.md, PLAN.md) / confirmed by me / step-0a..0d
 - step-0 / overlay, docs, LumiWorld clone / .clinerules/, tools/, NOTES, PLAN, SETUP, .gitignore / docs copied (COPIED.txt present) / step-0
 
 ## Current Step
-- 6b: PLAN.md Step 6b — replace the static interceptor block with the real pipeline
+- 7: PLAN.md Step 7 — minimal frontend drawer tab (ctx.ui.registerDrawerTab): enable toggle,
+  connection picker (spindle.connections.list, generation.md:787-815) with a "use default"
+  option that clears the saved id, readout from backend messages; spindle.json gains
+  entry_frontend: "lumiverse/dist/frontend.js" (manifest.md:36).
 
 ## Next Step
-- Settle the Step 6b blockers before implementation: determine how generate.raw resolves the
-  profile model on both providers, and obtain a documented userId source for generate.raw.
-  Decision 2 wording: the dist rebuild happens in 6a AND 6b (cumulative); 6a already rebuilt
-  and committed dist/, and 6b will rebuild and commit dist/ again with the real pipeline
-  (Step 5 modules + Step 4 call).
+- Test Step 7 in Lumiverse: toggle persists across reload; picker lists the user's real
+  connections and the chosen id drives the next interceptor run. Then /scribe.md (step-7).
+  After 7: Step 8+ deferred items (see Project Scope / PLAN.md Step 8+).
 
 ## Known Issues
-- userId docs gap: GenerationRequestDTO.userId exists in types (api.d.ts:483-488) but not in generation.md:53-62; operator-scoped extensions must pass it inside the request object (LumiWorld backend.ts:986). The interceptor context userId exists only in installed types (api.d.ts:141), not docs (interceptors.md:152-166); 6b needs a userId for generate.raw.
-- generate.raw with only connection_id fails on OpenRouter and custom profiles (provider 400: No models provided / model field is required); the failing custom profile is `Test` (model z-ai/glm-5.3-flash), while the custom koboldcpp profile worked end to end. Probe (untagged commit, user-verified): on OpenRouter nvidia/nemotron-3.5-super-vl:free, generate.raw with top-level provider and model from spindle.connections.get(connectionId, userId) plus connection_id SUCCEEDED, and generate.quiet with connection_id also succeeded. Decision: 6b uses raw-explicit (typed cast like LumiWorld backend.ts:982-993; docs: generation.md:7-18, 286-293 prose/examples; the DTO table generation.md:53-62 and api.d.ts:454-520 omit provider/model). Open: quiet may have used the active profile, not connection_id (the test profile was the default); custom profile retest pending Step 7 picker. Probe code in runStep4Once (quiet + raw-explicit variants and diag: logs) is temporary and is to be removed in 6b.
-- INFERRED: NVIDIA NIM 401 "Invalid JWT serialization: Missing dot delimiter(s)" was a key/profile problem, not the extension (the extension has no access to headers or keys); the interceptor ran on the same message before the provider returned 401.
-- The revoke/re-grant lifecycle of an interceptor is not documented (interceptorRegistered stays true; permissions.md:199-226).
-- The failure-path probe (forced throw) was SKIPPED in 6a.
-- The Step 4 fixture generate.raw call still fires once per process start and spends one request; remove or gate it in Step 6.
-- connections.list order undocumented; selection rule: saved connectionId, else is_default profile, else first. Step 4 persists the first successful choice into global/settings.json (sticky). Step 7 picker needs a "use default" option that clears the saved id and never changes Lumiverse's own default.
-- Minor: in runStep4Once, a persistConnectionId failure is logged as "failed at generate.raw" (stage not advanced before persist). Not fixed.
-- "[runtime] critical memory pressure" lines appeared while a local 26B model ran; no sign they come from this extension. Lumiverse data disk 96.9% used.
-- events.md:26 says the CHAT_CHANGED payload is { chatId }; observed runtime payload keys are: chat, changedFields.
-- getActive(userId?) and the event handler's 2nd userId argument are not in the docs (types only: spindle-api.d.ts:911, :174/:210); confirmed working at runtime (operator-scoped ext).
+1. Latency: raw done ms=14858 on the free OpenRouter model (nvidia/nemotron-3.5-super-vl:free),
+   so each message waits ~15 s before generation starts; timeout raised to 30000. Step 7 can
+   consider a faster connection.
+2. The parse-failure log can echo a few characters of model output via the JSON.parse error
+   text. Later: replace with a fixed string plus contentLength.
+3. The guardrails section is truncated mid-sentence in the injected text (exceeds its 700-char
+   footprint budget). Look at it after Step 7.
+4. Each user message now costs two model requests (one raw pipeline call, one real generation);
+   a raw failure just means pass-through.
+5. Unchanged and still open: revoking then re-granting the interceptor permission without a
+   restart might not re-register (interceptorRegistered stays true; permissions.md:199-226).
+6. generate.raw with only connection_id failed on OpenRouter ("No models provided") and custom profile `Test` ("model field is required"); the Task A probe showed raw with
+   top-level provider/model from connections.get plus connection_id and userId works on OpenRouter (decision 21); generate.quiet with connection_id also worked but is not proven
+   to honour connection_id (the profile was also the default); custom profile `Test` not retested until the Step 7 picker.
+- INFERRED: NVIDIA NIM 401 "Invalid JWT serialization: Missing dot delimiter(s)" was a
+  key/profile problem, not the extension (no header/key access from the extension).
+- userId docs gap remains: GenerationRequestDTO.userId in api.d.ts:483-488 but not
+  generation.md:53-62; context.userId types-only (interceptors.md:152-166 vs api.d.ts:141) —
+  both confirmed at runtime in 6b (operator-scoped ext).
+- connections.list order undocumented; selection rule: saved connectionId, else is_default
+  profile, else first. Step 7 picker needs a "use default" option that clears the saved id and
+  never changes Lumiverse's own default; custom profile `Test` (z-ai/glm-5.3-flash) retest
+  pending that picker.
+- Minor (moot since 6b removed runStep4Once): a persistConnectionId failure was logged as
+  "failed at generate.raw" (stage not advanced before persist).
+- "[runtime] critical memory pressure" lines appeared while a local 26B model ran; no sign they
+  come from this extension. Lumiverse data disk 96.9% used.
+- events.md:26 says the CHAT_CHANGED payload is { chatId }; observed runtime payload keys are:
+  chat, changedFields.
+- getActive(userId?) and the event handler's 2nd userId argument are types-only
+  (spindle-api.d.ts:911, :174/:210); confirmed working at runtime (operator-scoped ext).
 - getMessages has no userId parameter (spindle-api.d.ts:494-495).
-- CHAT_CHANGED also fires on message changes (send, edit, delete, swipe), sometimes several times per action, not only on chat switches.
+- CHAT_CHANGED also fires on message changes (send, edit, delete, swipe), sometimes several
+  times per action, not only on chat switches.
 - No startup read: the window is empty until the first CHAT_CHANGED event. In memory only.
-- Temporary payload-key-names log in the CHAT_CHANGED handler — remove later.
-- Settings live in spindle.storage (shared extension dir, storage.md:73, 81). If per-user settings are ever needed, that means userStorage + explicit userId (storage.md:83, 118-125).
+- Settings live in spindle.storage (shared extension dir, storage.md:73, 81). Per-user settings
+  would mean userStorage + explicit userId (storage.md:83, 118-125).
 - GitHub push: push works from the user's own PowerShell; Cline never pushes.
-- Analysis 1 confirmed: only index.js + hosts/sillytavern/* + ui.mjs are host-bound; rest is PURE.
-  Packet = 3 named prompt keys.
-- Step 5 tests live in lumiverse/tests/ (bun lumiverse/tests/<module>.mjs; no framework, helpers.mjs); not type-checked, not part of the build.
-- Analysis 2: interceptor timeout default 10 s (manifest override max 5 min); optional interceptor timeouts drop changes silently. spindle.json at repo root; dist/ auto-built (bun) if missing. Model calls: spindle.generate.raw(connection_id)/quiet/batch; no native card-deck equivalent.
-- Analysis 3: LumiWorld ships pipeline-in-interceptor with interceptorTimeoutMs 300000 and internal per-phase budgets; dist/ committed; commit deferred to GENERATION_ENDED, discarded on GENERATION_STOPPED; single named breakdown entry; revision-based settings autosave.
+- Analysis 1 confirmed: only index.js + hosts/sillytavern/* + ui.mjs are host-bound; rest is
+  PURE. Packet = 3 named prompt keys.
+- Step 5 tests live in lumiverse/tests/ (bun lumiverse/tests/<module>.mjs; no framework,
+  helpers.mjs); not type-checked, not part of the build.
+- Analysis 2: optional interceptor timeouts drop changes silently; spindle.json at repo root;
+  dist/ auto-built (bun) only if missing; no native card-deck equivalent in Lumiverse.
+- Analysis 3: LumiWorld ships pipeline-in-interceptor with per-phase budgets,
+  interceptorTimeoutMs 300000, commit deferred to GENERATION_ENDED, single named breakdown
+  entry, revision-based settings autosave.
+- 6b artifacts: dist/backend.js 74860 bytes, SHA256
+  F5E5DEC7C2E4B2429985B5B16F2297A17B6B445686D5E0723D0B87D92AA02885 (matched an isolated build).
 
 ## Last Working Version
-Tag: step-6a (commit 3992b807941ba6f97f8ec026f51e2df2955d2034)
-Go back with: git reset --hard step-6a
+Tag: step-6b (commit 8ea0085; the tag is on that commit, not HEAD)
+Go back with: git reset --hard step-6b
