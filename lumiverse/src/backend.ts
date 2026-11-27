@@ -11,7 +11,7 @@ import { hashJson, truncate } from './core.mjs'
 const composePacket = composePromptPacket as unknown as (args: {
   hand: unknown
   snapshot: { chatId: string; sceneFingerprint: string; turnFingerprint: string }
-  settings: Record<string, never>
+  settings: { promptFootprint: string }
   precomposedGuidance: { status: 'used'; text: string; sourceCardIds: string[] } | null
 }) => Promise<{
   diagnostics?: {
@@ -75,7 +75,11 @@ async function loadOrCreateSettings(): Promise<void> {
 try {
   await loadOrCreateSettings()
 } catch (error) {
-  spindle.log.error(`settings: failed to load or create — ${String(error)}`)
+  // Fixed labels, no error text (manager rules 1, 6).
+  const errorClass = error instanceof Error ? error.name : 'non-Error'
+  spindle.log.error(
+    `settings: failed to load or create errorClass=${errorClass} errorLength=${String(error).length}`,
+  )
 }
 
 // ---- Step 6b: the real pipeline inside the interceptor (PLAN.md Step 6b) ----
@@ -307,10 +311,15 @@ function tryRegisterInterceptor(): void {
       const precomposedGuidance = parseGuidanceContent(rawContent)
 
       stage = 'compose'
+      // promptFootprint 'normal' (Step 8, manager-approved Option 1): the reduced
+      // normalizeSettings accepts 'normal' (settings.mjs:7, :33-36, :73); the
+      // 'compact' default (settings.mjs:24) capped guardrails at 700 chars and cut
+      // the 826-char static section mid-word. Probe: under 'normal' the guardrails
+      // block is 826 chars with no ellipsis. Ported .mjs files stay byte-identical.
       const packet = await composePacket({
         hand,
         snapshot: buildSnapshot(chatId, window),
-        settings: {},
+        settings: { promptFootprint: 'normal' },
         precomposedGuidance,
       })
       spindle.log.info(
@@ -343,8 +352,10 @@ function tryRegisterInterceptor(): void {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
+      // Fixed labels, no error text: class + length only (manager rule 6).
+      const errorClass = error instanceof Error ? error.name : 'non-Error'
       spindle.log.error(
-        `pipeline: failed stage=${stage} error=${message.slice(0, 200)} promptMessages unchanged=${messages.length}`,
+        `pipeline: failed stage=${stage} errorClass=${errorClass} errorLength=${message.length} promptMessages unchanged=${messages.length}`,
       )
       sendRunStatus('failed', { stage, promptMessages: messages.length }, userId)
       return messages
@@ -589,6 +600,10 @@ spindle.on('CHAT_CHANGED', (_payload, userId) => {
   // as the interceptor's fallback userId source. Never logged.
   lastKnownUserId = userId
   void refreshChatWindow(userId).catch((error) => {
-    spindle.log.error(`chat-window: refresh failed — ${String(error)}`)
+    // Fixed labels, no error text (manager rules 1, 6).
+    const errorClass = error instanceof Error ? error.name : 'non-Error'
+    spindle.log.error(
+      `chat-window: refresh failed errorClass=${errorClass} errorLength=${String(error).length}`,
+    )
   })
 })

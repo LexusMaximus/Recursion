@@ -1559,7 +1559,8 @@ async function loadOrCreateSettings() {
 try {
   await loadOrCreateSettings();
 } catch (error) {
-  spindle.log.error(`settings: failed to load or create \u2014 ${String(error)}`);
+  const errorClass = error instanceof Error ? error.name : "non-Error";
+  spindle.log.error(`settings: failed to load or create errorClass=${errorClass} errorLength=${String(error).length}`);
 }
 function messageText(content) {
   if (typeof content === "string")
@@ -1725,7 +1726,7 @@ function tryRegisterInterceptor() {
       const packet = await composePacket({
         hand,
         snapshot: buildSnapshot(chatId, window),
-        settings: {},
+        settings: { promptFootprint: "normal" },
         precomposedGuidance
       });
       spindle.log.info(`pipeline: guidance status=${packet.diagnostics?.guidanceStatus ?? "(unknown)"} composerLane=${packet.diagnostics?.composerLane ?? "(unknown)"} selectedCards=${packet.diagnostics?.selectedCardCount ?? 0}`);
@@ -1748,7 +1749,8 @@ function tryRegisterInterceptor() {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      spindle.log.error(`pipeline: failed stage=${stage} error=${message.slice(0, 200)} promptMessages unchanged=${messages.length}`);
+      const errorClass = error instanceof Error ? error.name : "non-Error";
+      spindle.log.error(`pipeline: failed stage=${stage} errorClass=${errorClass} errorLength=${message.length} promptMessages unchanged=${messages.length}`);
       sendRunStatus("failed", { stage, promptMessages: messages.length }, userId);
       return messages;
     }
@@ -1908,6 +1910,7 @@ spindle.on("CHAT_CHANGED", (_payload, userId) => {
   }
   lastKnownUserId = userId;
   refreshChatWindow(userId).catch((error) => {
-    spindle.log.error(`chat-window: refresh failed \u2014 ${String(error)}`);
+    const errorClass = error instanceof Error ? error.name : "non-Error";
+    spindle.log.error(`chat-window: refresh failed errorClass=${errorClass} errorLength=${String(error).length}`);
   });
 });
