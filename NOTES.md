@@ -60,9 +60,11 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
       selection, 5c card validation; tags step-5a/5b/5c)
 - [x] 6a. PLAN.md Step 6a — interceptor injects a hard-coded block (PASSED; tagged step-6a)
 - [x] 6b. PLAN.md Step 6b — real pipeline inside the interceptor (PASSED; tag step-6b on 8ea0085)
+- [x] 7. PLAN.md Step 7 — minimal frontend drawer tab (PASSED; tag step-7 on code commit 541e38d)
 
 ## Done Log
 (Newest first: step / what changed / files / test result / tag)
+- 7 / minimal frontend drawer tab: ctx.ui.registerDrawerTab with enable toggle (defaults on via enabled !== false), connection picker (spindle.connections.list, generation.md:787-815) with a "use default" option; DECISION 11 (sticky connectionId via auto-persist) SUPERSEDED — connectionId '' means use default, resolved per run, only the picker writes it; readout from backend messages; spindle.json + entry_frontend (manifest.md:36) / lumiverse/src/frontend.ts (new), lumiverse/dist/frontend.js, lumiverse/src/backend.ts, lumiverse/dist/backend.js, spindle.json / dist: backend 78.42 KB hash dd7a5aa7, frontend 3.99 KB hash b2905d69 (git hash-object) / LIVE TEST PASSED, manager's words: all seven checks passed as planned; toggle click logged exactly one "ui: set enabled=" line; Connection Manager default unchanged; frontend readout stale after toggle off until reload (new known issue) / tag step-7 (code commit 541e38d, pushed to origin)
 - 6b / real pipeline inside the interceptor: windowed chat -> selectHand -> composePromptPacket -> generate.raw (top-level provider/model from connections.get + connection_id + userId, decision 21) -> 3 prompt blocks joined into ONE system message prepended at index 0; ONE Prompt Breakdown entry "Recursion Guidance" first, sections guidance / card evidence / guardrails; failure = pass-through (loop guard: raw calls never re-enter the interceptor chain, interceptors.md:179-181). Removed: the Step 4 fixture (runStep4Once, quiet variant, diag: logs) and the CHAT_CHANGED payload-keys log; 4th import line approved: hashJson + truncate (core.mjs). context.userId types-only (api.d.ts:141) but CONFIRMED PRESENT at runtime (userIdSource=context); CHAT_CHANGED 2nd-arg userId stays as fallback. spindle.json interceptorTimeoutMs 10000 -> 30000 (internal raw budget 25 s); tsconfig +allowImportingTsExtensions +noEmit (tsc check-only, bun build makes dist).
   TEMP failure-path probe commit a014e7a (forced throw at the top of the interceptor handler) committed untagged, tested, reverted — repo content equals 8ea0085 / lumiverse/src/backend.ts, lumiverse/tsconfig.json, lumiverse/dist/backend.js, spindle.json / dist/backend.js 74860 bytes, SHA256 F5E5DEC7C2E4B2429985B5B16F2297A17B6B445686D5E0723D0B87D92AA02885 (matched an isolated build) / VERIFIED PASSED on OpenRouter nvidia/nemotron-3.5-super-vl:free.
   Happy path: pipeline lines in order (start, window kept=10, hand cards=5 omitted=0, raw done ms=14858 contentLength=466, guidance status=used, injected blocks=3/3 promptMessages=15), no loop; Prompt Breakdown shows ONE "Recursion Guidance" entry first with the three sections. Failure path: "pipeline: failed stage=window error=probe: forced pipeline failure promptMessages unchanged=14", no Recursion entry, normal reply / tag step-6b (commit 8ea0085; the tag is on that commit, not HEAD)
@@ -76,15 +78,14 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - step-0 / overlay, docs, LumiWorld clone / .clinerules/, tools/, NOTES, PLAN, SETUP, .gitignore / docs copied (COPIED.txt present) / step-0
 
 ## Current Step
-- 7: PLAN.md Step 7 — minimal frontend drawer tab (ctx.ui.registerDrawerTab): enable toggle,
-  connection picker (spindle.connections.list, generation.md:787-815) with a "use default"
-  option that clears the saved id, readout from backend messages; spindle.json gains
-  entry_frontend: "lumiverse/dist/frontend.js" (manifest.md:36).
+- Step 8+ deferred items (PLAN.md Step 8+): reasoner lane, authored decks + card-state UI,
+  checkpoints/cache, post-process + swipes, Full Viewer, progress array, precompute-on-events.
+  Not started; manager picks the next item.
 
 ## Next Step
-- Test Step 7 in Lumiverse: toggle persists across reload; picker lists the user's real
-  connections and the chosen id drives the next interceptor run. Then /scribe.md (step-7).
-  After 7: Step 8+ deferred items (see Project Scope / PLAN.md Step 8+).
+- Manager picks the Step 8+ item; guardrails truncation (Known Issue 3) is a Step 8 candidate.
+  Decision 11 supersession is recorded in the Done Log above; PLAN.md was not touched by
+  /scribe.md (touch-only-NOTES.md rule), so align PLAN.md wording manually if needed.
 
 ## Known Issues
 1. Latency: raw done ms=14858 on the free OpenRouter model (nvidia/nemotron-3.5-super-vl:free),
@@ -93,23 +94,24 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 2. The parse-failure log can echo a few characters of model output via the JSON.parse error
    text. Later: replace with a fixed string plus contentLength.
 3. The guardrails section is truncated mid-sentence in the injected text (exceeds its 700-char
-   footprint budget). Look at it after Step 7.
+   footprint budget). Reconfirmed live in Step 7 (seen in Prompt Breakdown); not changed in
+   Step 7, no code touched. Candidate for Step 8.
 4. Each user message now costs two model requests (one raw pipeline call, one real generation);
    a raw failure just means pass-through.
 5. Unchanged and still open: revoking then re-granting the interceptor permission without a
    restart might not re-register (interceptorRegistered stays true; permissions.md:199-226).
 6. generate.raw with only connection_id failed on OpenRouter ("No models provided") and custom profile `Test` ("model field is required"); the Task A probe showed raw with
    top-level provider/model from connections.get plus connection_id and userId works on OpenRouter (decision 21); generate.quiet with connection_id also worked but is not proven
-   to honour connection_id (the profile was also the default); custom profile `Test` not retested until the Step 7 picker.
+   to honour connection_id (the profile was also the default); custom profile `Test` not
+   retested — Step 7 picker delivered, retest not reported.
 - INFERRED: NVIDIA NIM 401 "Invalid JWT serialization: Missing dot delimiter(s)" was a
   key/profile problem, not the extension (no header/key access from the extension).
 - userId docs gap remains: GenerationRequestDTO.userId in api.d.ts:483-488 but not
   generation.md:53-62; context.userId types-only (interceptors.md:152-166 vs api.d.ts:141) —
   both confirmed at runtime in 6b (operator-scoped ext).
 - connections.list order undocumented; selection rule: saved connectionId, else is_default
-  profile, else first. Step 7 picker needs a "use default" option that clears the saved id and
-  never changes Lumiverse's own default; custom profile `Test` (z-ai/glm-5.3-flash) retest
-  pending that picker.
+  profile, else first. Step 7 picker delivered ("use default" clears the saved id and never
+  changes Lumiverse's own default); custom profile retest not reported.
 - Minor (moot since 6b removed runStep4Once): a persistConnectionId failure was logged as
   "failed at generate.raw" (stage not advanced before persist).
 - "[runtime] critical memory pressure" lines appeared while a local 26B model ran; no sign they
@@ -137,6 +139,12 @@ extension. My fork, branch `lumiverse-port`. The original ST source stays intact
 - 6b artifacts: dist/backend.js 74860 bytes, SHA256
   F5E5DEC7C2E4B2429985B5B16F2297A17B6B445686D5E0723D0B87D92AA02885 (matched an isolated build).
 
+- Step 7 new (cosmetic): the frontend readout is stale after toggle off until reload.
+- Step 7 (existing, to harden): the pipeline failure log still includes up to 200 chars of
+  error text.
+- Step 7 docs-vs-types (existing, no new gaps): interceptor context.userId and the
+  CHAT_CHANGED handler's 2nd userId argument remain types-only (see entries above).
+
 ## Last Working Version
-Tag: step-6b (commit 8ea0085; the tag is on that commit, not HEAD)
-Go back with: git reset --hard step-6b
+Tag: step-7 (code commit 541e38d; the tag is on that commit and pushed to origin)
+Go back with: git reset --hard step-7
